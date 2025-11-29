@@ -13,6 +13,8 @@
     const UPDATE_INTERVAL = Number(body.dataset.updateInterval) || 2000;
     const DEBUG = (body.dataset.debug || '').toLowerCase() === 'true';
     const CAMERA_URL = body.dataset.cameraUrl || '';
+    const PRINTER_TYPE = (body.dataset.printerType || 'moonraker').toLowerCase();
+    const STATUS_URL = body.dataset.statusUrl || '';
 
     // Set printer name on load
     const printerNameEl = document.getElementById('printerName');
@@ -36,6 +38,13 @@
     };
 
     async function fetchPrintStatus() {
+        if (PRINTER_TYPE === 'bambu') {
+            return fetchBambuStatus();
+        }
+        return fetchMoonrakerStatus();
+    }
+
+    async function fetchMoonrakerStatus() {
         try {
             const response = await fetch(`http://${PRINTER_IP}/printer/objects/query?display_status&print_stats&virtual_sdcard&extruder&heater_bed&toolhead`);
             const data = await response.json();
@@ -120,6 +129,95 @@
         }
     }
 
+    async function fetchBambuStatus() {
+        try {
+            const url = STATUS_URL || `http://${PRINTER_IP}/status`;
+            const response = await fetch(url, { cache: 'no-store' });
+            const payload = await response.json();
+
+            const source = payload.data || payload.pushing || payload;
+            const print = source.print || source;
+            if (!print || typeof print !== 'object' || Object.keys(print).length === 0) {
+                document.getElementById('status').textContent = 'Waiting...';
+                document.getElementById('status').className = 'status-pill idle';
+                document.getElementById('progressBar').style.width = '0%';
+                document.getElementById('percentage').textContent = '0%';
+                document.getElementById('timeRemaining').textContent = '--';
+                document.getElementById('layerInfo').textContent = '--';
+                document.getElementById('filename').textContent = '--';
+                document.getElementById('hotendTemp').textContent = '--';
+                document.getElementById('bedTemp').textContent = '--';
+                updateDebug({ mode: 'bambu', state: 'waiting', progress: 0, filename: '--', layers: {}, temps: {} });
+                return;
+            }
+
+            const statusElement = document.getElementById('status');
+            const stateRaw = (print.gcode_state || print.mc_print_stage || 'unknown').toString().toLowerCase();
+            const state = stateRaw === 'running' && print.mc_print_stage === 0 ? 'prepare' : stateRaw;
+            statusElement.textContent = titleCase(state);
+
+            if (state === 'running' || state === 'prepare') {
+                statusElement.className = 'status-pill ok';
+            } else if (state === 'failed' || state === 'error') {
+                statusElement.className = 'status-pill error';
+            } else {
+                statusElement.className = 'status-pill idle';
+            }
+
+            const nozzleTemp = asNumber(print.nozzle_temper ?? print.nozzle_temp);
+            const nozzleTarget = asNumber(print.nozzle_target_temper ?? print.target_nozzle_temp);
+            if (nozzleTemp !== null && nozzleTarget !== null) {
+                document.getElementById('hotendTemp').textContent = `${Math.round(nozzleTemp)}\u00B0C / ${Math.round(nozzleTarget)}\u00B0C`;
+            } else {
+                document.getElementById('hotendTemp').textContent = '--';
+            }
+
+            const bedTemp = asNumber(print.bed_temper ?? print.bed_temp);
+            const bedTarget = asNumber(print.bed_target_temper ?? print.target_bed_temp);
+            if (bedTemp !== null && bedTarget !== null) {
+                document.getElementById('bedTemp').textContent = `${Math.round(bedTemp)}\u00B0C / ${Math.round(bedTarget)}\u00B0C`;
+            } else {
+                document.getElementById('bedTemp').textContent = '--';
+            }
+
+            const isPrinting = state === 'running' || state === 'prepare';
+            const progressRaw = isPrinting ? asNumber(print.mc_percent) : 0;
+            const progress = normalizePercentage(progressRaw);
+            const percentage = Math.round(progress * 100);
+            document.getElementById('progressBar').style.width = `${percentage}%`;
+            document.getElementById('percentage').textContent = `${percentage}%`;
+
+            const currentLayer = isPrinting ? asNumber(print.layer_num) : null;
+            const totalLayer = isPrinting ? asNumber(print.total_layer_num) : null;
+            document.getElementById('layerInfo').textContent = formatLayerInfo(currentLayer, totalLayer);
+
+            const remainingMinutes = isPrinting ? asNumber(print.mc_remaining_time) : null;
+            const remainingSeconds = remainingMinutes !== null ? remainingMinutes * 60 : null;
+            document.getElementById('timeRemaining').textContent = formatTime(remainingSeconds);
+
+            const filename = isPrinting
+                ? (print.subtask_name || print.gcode_file || print.gcode_file_downloaded || 'Unknown')
+                : 'Idle';
+            document.getElementById('filename').textContent = filename;
+
+            updateDebug({
+                mode: 'bambu',
+                state,
+                progress,
+                filename,
+                temps: { nozzleTemp, nozzleTarget, bedTemp, bedTarget },
+                layers: { currentLayer, totalLayer },
+                remainingMinutes,
+                raw: print
+            });
+        } catch (error) {
+            document.getElementById('status').textContent = 'Connection Error';
+            document.getElementById('status').className = 'status-pill error';
+            console.error('Error fetching print status:', error);
+            updateDebug({ error: error?.message || String(error) });
+        }
+    }
+
     function formatLayerInfo(current, total) {
         const hasCurrent = current !== null && current !== undefined;
         const hasTotal = total !== null && total !== undefined;
@@ -144,6 +242,19 @@
         } else {
             return `${secs}s`;
         }
+    }
+
+    function normalizePercentage(value) {
+        if (value === null || value === undefined) return 0;
+        if (value > 1) {
+            return Math.max(0, Math.min(1, value / 100));
+        }
+        return Math.max(0, Math.min(1, value));
+    }
+
+    function titleCase(str) {
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1);
     }
 
     function getLayerInfo(printStats, displayStatus, toolhead) {
@@ -394,6 +505,25 @@
 
         if (info?.error) {
             el.textContent = `ERROR: ${info.error}`;
+            el.classList.remove('hidden');
+            return;
+        }
+
+        if (info?.mode === 'bambu') {
+            const lines = [];
+            lines.push(`mode=bambu`);
+            lines.push(`state=${info.state}`);
+            lines.push(`progress=${Math.round((info.progress ?? 0) * 100)}%`);
+            lines.push(`filename=${info.filename}`);
+            const temps = info.temps || {};
+            lines.push(`temps: nozzle=${temps.nozzleTemp ?? 'n/a'} / ${temps.nozzleTarget ?? 'n/a'} bed=${temps.bedTemp ?? 'n/a'} / ${temps.bedTarget ?? 'n/a'}`);
+            const layers = info.layers || {};
+            lines.push(`layers: current=${layers.currentLayer ?? 'n/a'} total=${layers.totalLayer ?? 'n/a'}`);
+            lines.push(`remainingMin=${info.remainingMinutes ?? 'n/a'}`);
+            if (info.raw) {
+                lines.push(`keys=${Object.keys(info.raw).join(',')}`);
+            }
+            el.textContent = lines.join('\n');
             el.classList.remove('hidden');
             return;
         }

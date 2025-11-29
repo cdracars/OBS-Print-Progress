@@ -10,13 +10,17 @@
       data-printer-name=""
       data-update-interval="2000"
       data-debug="false"
-      data-camera-url="">
+      data-camera-url=""
+      data-printer-type="moonraker"
+      data-status-url="">
     <!-- EASY CONFIG: change only these values -->
     <script>
         window.PRINTER_CONFIG = {
-            name: 'Printer 1',
-            ip: 'printer1.local',
-            camera: 'http://printer1.local/webcam/?action=stream',
+            name: 'P1S',
+            type: 'bambu',
+            ip: '192.168.1.50', // printer IP/hostname
+            statusUrl: 'http://localhost:9876/status', // bambu-proxy.py endpoint for this printer
+            camera: 'rtsp://bblp:ACCESS_CODE@192.168.1.50:8554/live',
             updateInterval: 2000, // ms
             debug: false
         };
@@ -27,6 +31,8 @@
             b.dataset.printerIp = cfg.ip || b.dataset.printerIp || 'localhost';
             b.dataset.cameraUrl = cfg.camera || b.dataset.cameraUrl || '';
             b.dataset.updateInterval = String(cfg.updateInterval || cfg.intervalMs || b.dataset.updateInterval || 2000);
+            b.dataset.printerType = (cfg.type || b.dataset.printerType || 'moonraker').toLowerCase();
+            b.dataset.statusUrl = cfg.statusUrl || b.dataset.statusUrl || '';
             const debugVal = cfg.debug;
             b.dataset.debug = String(debugVal === undefined ? b.dataset.debug || 'false' : debugVal);
         })(window.PRINTER_CONFIG);
