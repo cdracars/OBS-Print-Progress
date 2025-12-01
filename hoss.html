@@ -14,12 +14,12 @@
     <!-- EASY CONFIG: change only these values -->
     <script>
         window.PRINTER_CONFIG = {
-            name: 'Printer 2',
-            ip: 'printer2.local',
+            name: 'Hoss (SV08)',
+            ip: 'hoss.dracarsfamily', // printer IP/hostname
             camera: '', // leave blank to auto-build from IP
-            flipHorizontal: false,
-            flipVertical: false,
-            showChamber: false,
+            flipHorizontal: false, // set true if the raw stream is mirrored
+            flipVertical: true,   // set true if the raw stream is upside down
+            showChamber: false,    // set true if you have a chamber thermistor
             updateInterval: 2000, // ms
             debug: false
         };
@@ -38,6 +38,7 @@
             b.dataset.debug = String(debugVal === undefined ? b.dataset.debug || 'false' : debugVal);
 
             if (!b.dataset.cameraUrl && ip) {
+                // Default webcam path so the IP only has to be set once.
                 b.dataset.cameraUrl = 'http://' + ip + '/webcam/?action=stream';
             }
         })(window.PRINTER_CONFIG);
@@ -66,7 +67,7 @@
                         <span class="label">Bed</span>
                         <span class="value" id="bedTemp">--</span>
                     </div>
-                    <div class="info-chip">
+                    <div class="info-chip hidden" id="chamberChip">
                         <span class="label">Chamber</span>
                         <span class="value" id="chamberTemp">--</span>
                     </div>
