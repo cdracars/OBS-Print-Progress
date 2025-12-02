@@ -14,8 +14,8 @@
     <!-- EASY CONFIG: change only these values -->
     <script>
         window.PRINTER_CONFIG = {
-            name: 'Printer 1',
-            ip: 'printer.local', // printer IP/hostname
+            name: '',
+            ip: '', // printer IP/hostname
             camera: '', // leave blank to auto-build from IP
             flipHorizontal: false, // set true if the raw stream is mirrored
             flipVertical: false,   // set true if the raw stream is upside down
@@ -50,6 +50,10 @@
                     <div class="printer-name" id="printerName">Printer</div>
                     <div class="status-pill ok" id="status">Connecting...</div>
                 </div>
+		<div id="previewFloating">
+        		<img id="thumbnail" class="thumb-img" src="" alt="Preview Thumbnail">
+        	<div id="thumbnailFilename" class="thumb-file-label">--</div>
+    		</div>
                 <div class="overlay-info">
                     <div class="info-chip">
                         <span class="label">Layer</span>
@@ -66,8 +70,8 @@
                     <div class="info-chip">
                         <span class="label">Bed</span>
                         <span class="value" id="bedTemp">--</span>
-                    </div>
-                    <div class="info-chip">
+                    </div>		    
+                    <div class="info-chip" id="chamberChip">
                         <span class="label">Chamber</span>
                         <span class="value" id="chamberTemp">--</span>
                     </div>
