@@ -71,20 +71,7 @@
                 document.getElementById('bedTemp').textContent = `${bedTemp}\u00B0C / ${bedTarget}\u00B0C`;
             }
 
-            const chamberChip = document.getElementById('chamberChip');
-            if (chamberChip) {
-                if (!SHOW_CHAMBER) {
-                    chamberChip.classList.add('hidden');
-                } else {
-                    chamberChip.classList.remove('hidden');
-                    const chamberTemps = await fetchChamberTemp();
-                    if (chamberTemps) {
-                        document.getElementById('chamberTemp').textContent = `${chamberTemps.current}\u00B0C / ${chamberTemps.target}\u00B0C`;
-                    } else {
-                        document.getElementById('chamberTemp').textContent = '--';
-                    }
-                }
-            }
+            await updateChamber();
             
             const statusElement = document.getElementById('status');
             const state = printStats.state;
@@ -108,9 +95,11 @@
                 const slicerRemaining = slicerTotal !== null && slicerTotal !== undefined
                     ? Math.max(0, slicerTotal - printDuration)
                     : null;
+                const elapsedTime = getElapsedTime(printStats);
 
                 setTimeValue('timeEstimate', estimateRemaining);
                 setTimeValue('timeSlicer', slicerRemaining);
+                setTimeValue('timeTotal', elapsedTime);
 
                 updateDebug({
                     state,
@@ -125,7 +114,8 @@
                     progressLayer: computeLayerFromProgress(displayStatus, metadataCache.data),
                     estimateRemaining,
                     slicerRemaining,
-                    slicerTotal
+                    slicerTotal,
+                    elapsedTime
                 });
                 
                 document.getElementById('filename').textContent = formatFilename(printStats.filename) || 'Unknown';
@@ -135,12 +125,14 @@
                 document.getElementById('layerInfo').textContent = '--';
                 setTimeValue('timeEstimate', null);
                 setTimeValue('timeSlicer', null);
+                setTimeValue('timeTotal', null);
             } else {
                 statusElement.className = 'status-pill idle';
                 document.getElementById('progressBar').style.width = '0%';
                 document.getElementById('percentage').textContent = '0%';
                 setTimeValue('timeEstimate', null);
                 setTimeValue('timeSlicer', null);
+                setTimeValue('timeTotal', null);
                 document.getElementById('layerInfo').textContent = '--';
                 document.getElementById('filename').textContent = '--';
             }
@@ -153,10 +145,27 @@
         }
     }
 
+    async function updateChamber() {
+        const chamberChip = document.getElementById('chamberChip');
+        if (!chamberChip) return;
+
+        const temps = await fetchChamberTemp();
+        if (temps) {
+            chamberChip.classList.remove('hidden');
+            document.getElementById('chamberTemp').textContent = `${temps.current}\u00B0C / ${temps.target}\u00B0C`;
+        } else if (SHOW_CHAMBER) {
+            chamberChip.classList.remove('hidden');
+            document.getElementById('chamberTemp').textContent = '--';
+        } else {
+            chamberChip.classList.add('hidden');
+        }
+    }
+
     async function fetchChamberTemp() {
         const candidates = [
             'temperature_sensor chamber',
             'temperature_sensor chamber_temp',
+            'temperature_sensor chamber-temp',
             'heater_generic chamber'
         ];
 
@@ -251,6 +260,12 @@
             }
         }
         return null;
+    }
+
+    function getElapsedTime(printStats) {
+        const totalDuration = asNumber(printStats?.total_duration);
+        const printDuration = asNumber(printStats?.print_duration);
+        return totalDuration ?? printDuration ?? null;
     }
 
     function getLayerInfo(printStats, displayStatus, toolhead) {
