@@ -93,13 +93,25 @@
             if (state === 'printing') {
                 statusElement.className = 'status-pill ok';
                 
-                const progress = displayStatus.progress ?? virtualSdcard.progress ?? 0;
+                // Prefer the virtual_sdcard progress (matches what Mainsail shows), fall back to display_status
+                const rawProgress = virtualSdcard.progress ?? displayStatus.progress ?? 0;
+                const progress = Math.max(0, Math.min(1, Number(rawProgress) || 0));
                 const percentage = Math.round(progress * 100);
                 document.getElementById('progressBar').style.width = percentage + '%';
                 document.getElementById('percentage').textContent = percentage + '%';
                 
                 const { currentLayer, totalLayer } = getLayerInfo(printStats, displayStatus, toolhead);
                 document.getElementById('layerInfo').textContent = formatLayerInfo(currentLayer, totalLayer);
+                const printDuration = printStats.print_duration || 0;
+                const estimateRemaining = computeRemainingFromProgress(progress, printDuration);
+                const slicerTotal = getSlicerTotalSeconds(metadataCache.data, printStats.info);
+                const slicerRemaining = slicerTotal !== null && slicerTotal !== undefined
+                    ? Math.max(0, slicerTotal - printDuration)
+                    : null;
+
+                setTimeValue('timeEstimate', estimateRemaining);
+                setTimeValue('timeSlicer', slicerRemaining);
+
                 updateDebug({
                     state,
                     progress,
@@ -110,28 +122,25 @@
                     currentLayer,
                     totalLayer,
                     metadataLayer: computeLayerFromMetadata(toolhead, metadataCache.data),
-                    progressLayer: computeLayerFromProgress(displayStatus, metadataCache.data)
+                    progressLayer: computeLayerFromProgress(displayStatus, metadataCache.data),
+                    estimateRemaining,
+                    slicerRemaining,
+                    slicerTotal
                 });
                 
-                const printDuration = printStats.print_duration || 0;
-                if (progress > 0 && progress < 1) {
-                    const totalTime = printDuration / progress;
-                    const remaining = totalTime - printDuration;
-                    document.getElementById('timeRemaining').textContent = formatTime(remaining);
-                } else {
-                    document.getElementById('timeRemaining').textContent = '--';
-                }
-                
-                document.getElementById('filename').textContent = printStats.filename || 'Unknown';
+                document.getElementById('filename').textContent = formatFilename(printStats.filename) || 'Unknown';
                 
             } else if (state === 'paused') {
                 statusElement.className = 'status-pill idle';
                 document.getElementById('layerInfo').textContent = '--';
+                setTimeValue('timeEstimate', null);
+                setTimeValue('timeSlicer', null);
             } else {
                 statusElement.className = 'status-pill idle';
                 document.getElementById('progressBar').style.width = '0%';
                 document.getElementById('percentage').textContent = '0%';
-                document.getElementById('timeRemaining').textContent = '--';
+                setTimeValue('timeEstimate', null);
+                setTimeValue('timeSlicer', null);
                 document.getElementById('layerInfo').textContent = '--';
                 document.getElementById('filename').textContent = '--';
             }
@@ -200,6 +209,48 @@
         } else {
             return `${secs}s`;
         }
+    }
+
+    function setTimeValue(elementId, seconds) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        if (seconds === null || seconds === undefined || seconds < 0 || !Number.isFinite(seconds)) {
+            el.textContent = '--';
+        } else {
+            el.textContent = formatTime(seconds);
+        }
+    }
+
+    function computeRemainingFromProgress(progress, printDuration) {
+        if (progress > 0 && progress < 1) {
+            const totalTime = printDuration / progress;
+            return totalTime - printDuration;
+        }
+        return null;
+    }
+
+    function getSlicerTotalSeconds(metadata, slicerInfo) {
+        const candidates = [
+            metadata?.estimated_time,
+            metadata?.slicer_estimated_time,
+            metadata?.slicer_time,
+            metadata?.estimated_print_time,
+            metadata?.slicer_estimated_duration,
+            metadata?.print_time,
+            slicerInfo?.estimated_time,
+            slicerInfo?.slicer_time,
+            slicerInfo?.slicer_estimated_time,
+            slicerInfo?.estimated_print_time,
+            slicerInfo?.slicer_estimated_duration
+        ];
+
+        for (const value of candidates) {
+            const num = asNumber(value);
+            if (num && num > 0) {
+                return num;
+            }
+        }
+        return null;
     }
 
     function getLayerInfo(printStats, displayStatus, toolhead) {
@@ -409,6 +460,8 @@
             meta.first_layer_height = meta.first_layer_height ?? numberFromLine(lower, /first[_ ]?layer[_ ]?height[:=]\s*([\d.]+)/i);
             meta.layer_count = meta.layer_count ?? numberFromLine(lower, /layer[_ ]?(?:count|total|totals?)[:=]\s*([\d]+)/i);
             meta.layer_count = meta.layer_count ?? numberFromLine(lower, /total[_ ]?layers?[:=]\s*([\d]+)/i);
+            meta.estimated_time = meta.estimated_time ?? numberFromLine(lower, /(?:estimated[_ ]?time|estimated[_ ]?print[_ ]?time|print[_ ]?time)[:=]\s*([\d.]+)/i);
+            meta.estimated_time = meta.estimated_time ?? numberFromLine(lower, /;time[:=]\s*([\d.]+)/i);
             const heightVal = numberFromLine(lower, /(?:maxz|height|object[_ ]?height)[:=]\s*([\d.]+)/i);
             if (heightVal !== null) {
                 meta.object_height = meta.object_height ?? heightVal;
@@ -443,6 +496,13 @@
         return name;
     }
 
+    function formatFilename(filename) {
+        if (!filename) return null;
+        const normalized = filename.split('/').pop();
+        const withoutExt = normalized.replace(/\.gcode$/i, '');
+        return withoutExt;
+    }
+
     function updateDebug(info) {
         if (!DEBUG) return;
         const el = document.getElementById('debugInfo');
@@ -474,6 +534,8 @@
         lines.push(`progressLayer: current=${pLayer.current ?? 'null'} total=${pLayer.total ?? 'null'}`);
 
         lines.push(`chosen: current=${info.currentLayer ?? 'null'} total=${info.totalLayer ?? 'null'}`);
+        lines.push(`estimateRemaining=${info.estimateRemaining ?? 'null'}`);
+        lines.push(`slicerRemaining=${info.slicerRemaining ?? 'null'} total=${info.slicerTotal ?? 'null'}`);
 
         el.textContent = lines.join('\n');
         el.classList.remove('hidden');

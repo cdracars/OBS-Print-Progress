@@ -74,14 +74,21 @@
                 <img id="cameraFeed" alt="Printer camera feed">
                 <div class="overlay-bottom">
                     <div class="progress-bar">
-                        <div class="progress-fill" id="progressBar" style="width: 0%;">
+                        <div class="progress-fill" id="progressBar" style="width: 0%;"></div>
+                        <div class="progress-text">
                             <span class="progress-label">Progress</span>
                             <span id="percentage">0%</span>
                         </div>
                     </div>
                     <div class="detail">
-                        <span class="muted">Time Remaining</span>
-                        <span id="timeRemaining">--</span>
+                        <div class="time-block">
+                            <span class="muted">Estimate</span>
+                            <span id="timeEstimate">--</span>
+                        </div>
+                        <div class="time-block">
+                            <span class="muted">Slicer</span>
+                            <span id="timeSlicer">--</span>
+                        </div>
                     </div>
                 </div>
             </div>
