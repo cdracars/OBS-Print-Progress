@@ -806,6 +806,36 @@
         const metaResult = await fetchMetadata(filename);
         metadataCache.data = metaResult?.data || null;
         metadataCache.source = metaResult?.source || null;
+        
+        if (DEBUG) console.log('[OBS Print Progress] Raw metadata before filename parsing:', metadataCache.data);
+        
+        // Try to extract layer height from filename as last resort
+        if (metadataCache.data && !metadataCache.data.layer_height) {
+            if (DEBUG) console.log('[OBS Print Progress] No layer_height in metadata, trying filename:', filename);
+            // Match patterns like "_0.2_", "_0.2.", " 0.2 ", "0.2mm"
+            const filenameMatch = filename.match(/[_\s\.]0\.(\d+)(?:[_\s\.]|mm|$)/i);
+            if (filenameMatch) {
+                const inferredHeight = Number(`0.${filenameMatch[1]}`);
+                if (DEBUG) console.log('[OBS Print Progress] Filename match found:', filenameMatch[0], 'Height:', inferredHeight);
+                
+                if (inferredHeight >= 0.05 && inferredHeight <= 0.5) {
+                    metadataCache.data.layer_height = inferredHeight;
+                    if (DEBUG) console.log('[OBS Print Progress] Inferred layer height from filename:', inferredHeight);
+                    
+                    // Recalculate layer count if we have object height
+                    if (metadataCache.data.object_height && !metadataCache.data.layer_count) {
+                        const firstLayer = metadataCache.data.first_layer_height || inferredHeight;
+                        metadataCache.data.layer_count = Math.max(1, Math.round(((metadataCache.data.object_height - firstLayer) / inferredHeight) + 1));
+                        if (DEBUG) console.log('[OBS Print Progress] Calculated layer_count:', metadataCache.data.layer_count);
+                    }
+                } else {
+                    if (DEBUG) console.log('[OBS Print Progress] Inferred height out of range:', inferredHeight);
+                }
+            } else {
+                if (DEBUG) console.log('[OBS Print Progress] No layer height pattern found in filename');
+            }
+        }
+        
         if (DEBUG) console.log('Metadata loaded:', metadataCache.source, metadataCache.data);
     }
 
@@ -859,6 +889,8 @@
 
     async function fetchMetadataFromGcode(fileParam) {
         try {
+            if (DEBUG) console.log('[OBS Print Progress] Fetching metadata from gcode header for:', fileParam);
+            
             const candidates = [
                 fileParam,
                 fileParam.replace(/^gcodes\//, ''),
@@ -869,25 +901,32 @@
 
             for (const candidate of candidates) {
                 const safePath = encodeURI(candidate);
-                const response = await fetch(`http://${PRINTER_IP}/server/files/${safePath}`, {
+                const url = `http://${PRINTER_IP}/server/files/${safePath}`;
+                
+                if (DEBUG) console.log('[OBS Print Progress] Trying gcode path:', url);
+                
+                const response = await fetch(url, {
                     headers: { Range: 'bytes=0-65535' }
                 });
 
                 if (!response.ok) {
-                    // Silently continue - file might not be accessible
+                    if (DEBUG) console.log('[OBS Print Progress] Gcode fetch failed:', response.status);
                     continue;
                 }
 
+                if (DEBUG) console.log('[OBS Print Progress] Gcode header fetched successfully from:', candidate);
                 const text = await response.text();
                 const parsed = parseGcodeHeader(text);
                 if (parsed) {
+                    if (DEBUG) console.log('[OBS Print Progress] Successfully parsed gcode metadata');
                     return parsed;
                 }
             }
 
+            if (DEBUG) console.log('[OBS Print Progress] No gcode metadata found from any path');
             return null;
         } catch (err) {
-            // Silently fail - metadata is optional
+            if (DEBUG) console.error('[OBS Print Progress] Error fetching gcode metadata:', err);
             return null;
         }
     }
@@ -959,6 +998,13 @@
                 meta.layer_height = Number(heightMatch[1]);
                 if (DEBUG) console.log('[OBS Print Progress] Inferred layer height from text:', meta.layer_height);
             }
+        }
+        
+        // Additional fallback: calculate layer_count from object_height if we have layer_height
+        if (meta.object_height && meta.layer_height && !meta.layer_count) {
+            const firstLayer = meta.first_layer_height || meta.layer_height;
+            meta.layer_count = Math.max(1, Math.round(((meta.object_height - firstLayer) / meta.layer_height) + 1));
+            if (DEBUG) console.log('[OBS Print Progress] Calculated layer_count from height:', meta.layer_count);
         }
 
         if (meta.layer_height || meta.first_layer_height || meta.layer_count || meta.object_height) {
