@@ -237,6 +237,15 @@
             if (CAMERA_FLIP_X) flips.push('scaleX(-1)');
             if (CAMERA_FLIP_Y) flips.push('scaleY(-1)');
             cameraEl.style.transform = flips.join(' ');
+            
+            // Show camera only when loaded successfully
+            cameraEl.onload = () => {
+                cameraEl.classList.add('loaded');
+            };
+            cameraEl.onerror = () => {
+                cameraEl.classList.remove('loaded');
+                console.warn('Camera feed failed to load');
+            };
         } else {
             cameraEl.classList.add('hidden');
         }
@@ -399,9 +408,11 @@
 
                     if (normalized && loadedFor !== normalized) {
                         thumbEl.dataset.loadedFor = normalized;
+                        // Keep hidden while loading
+                        thumbEl.style.display = "none";
 
                         extractThumbnailFromGcode(normalized).then(b64 => {
-                            if (b64) {
+                            if (b64 && b64.length > 100) {  // Sanity check for valid base64
                                 thumbEl.src = `data:image/png;base64,${b64}`;
                                 thumbEl.style.display = "block";
 
@@ -410,23 +421,11 @@
                                     fileLabel.textContent = printStats.filename || "--";
                                 }
                             } else {
-                                thumbEl.src = "";
-                                thumbEl.style.display = "none";
-
-                                const fileLabel = document.getElementById("thumbnailFilename");
-                                if (fileLabel) {
-                                    fileLabel.textContent = "--";
-                                }
+                                hideThumbnail();
                             }
                         }).catch(err => {
                             console.error("Thumbnail load error:", err);
-                            thumbEl.src = "";
-                            thumbEl.style.display = "none";
-
-                            const fileLabel = document.getElementById("thumbnailFilename");
-                            if (fileLabel) {
-                                fileLabel.textContent = "--";
-                            }
+                            hideThumbnail();
                         });
                     }
                 }

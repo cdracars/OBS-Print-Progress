@@ -106,9 +106,15 @@ body {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    display: block;
+    display: none; /* Hidden until loaded */
     background: #0c1018;
     z-index: 1;
+}
+
+/* Show camera feed only when loaded successfully */
+.camera img.loaded,
+.camera video.loaded {
+    display: block;
 }
 
 .corner {
