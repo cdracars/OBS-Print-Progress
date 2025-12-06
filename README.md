@@ -63,8 +63,8 @@ Camera orientation tips:
 ## Select a printer in OBS
 
 1) Start a local server:
-   - Windows: double-click `start-server.bat`
-   - macOS/Linux: run `./start-server.sh` (ensure it's executable: `chmod +x start-server.sh`)
+   - Windows: double-click `windows-server-start.bat`
+   - macOS/Linux: run `./linux-mac-server-start.sh` (ensure it's executable: `chmod +x linux-mac-server-start.sh`)
 2) In OBS, add a **Browser** source and set the URL to `http://localhost:8000/printer.html?printer=<id>` (matching an `id` from `printers.json`).
 3) Set the source width/height you want; the overlay will scale to fit.
 4) If loading over `file://` fails due to CORS, serve via the local server (above), embed configs inline, or pass everything via query params.

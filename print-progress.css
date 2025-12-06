@@ -159,6 +159,7 @@ body {
 .printer-name {
     font-weight: 700;
     letter-spacing: 0.3px;
+    color: var(--theme-primary);
 }
 
 .status-pill {
@@ -178,7 +179,7 @@ body {
 }
 
 .status-pill.ok {
-    color: var(--accent);
+    color: var(--theme-primary);
 }
 
 .overlay-info {
