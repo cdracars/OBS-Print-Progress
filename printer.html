@@ -75,31 +75,40 @@
                         <span class="label">Chamber</span>
                         <span class="value" id="chamberTemp">--</span>
                     </div>
+		   <div class="info-chip">
+  			<span class="label">Speed</span>
+  			<span class="value" id="print-speed">-- mm/s</span>
+		  </div>
+
+		  <div class="info-chip">
+  			<span class="label">Flow</span>
+ 			<span class="value" id="print-flow">-- mm³/s</span>
+		</div>
+
                 </div>
                 <img id="cameraFeed" alt="Printer camera feed">
-                <div class="overlay-bottom">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressBar" style="width: 0%;"></div>
-                        <div class="progress-text">
-                            <span class="progress-label">Progress</span>
-                            <span id="percentage">0%</span>
-                        </div>
-                    </div>
-                    <div class="detail">
-                        <div class="time-block">
-                            <span class="muted">Estimate</span>
-                            <span id="timeEstimate">--</span>
-                        </div>
-                        <div class="time-block">
-                            <span class="muted">Slicer</span>
-                            <span id="timeSlicer">--</span>
-                        </div>
-                        <div class="time-block">
-                            <span class="muted">Elapsed</span>
-                            <span id="timeTotal">--</span>
-                        </div>
-                    </div>
-                </div>
+                 <div class="overlay-bottom">
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressBar" style="width: 0%;"></div>
+        <div class="progress-text">
+            <span class="progress-label">Progress</span>
+            <span id="percentage">0%</span>
+        </div>
+    </div>  <!-- ✅ THIS WAS MISSING -->
+
+    <div class="detail">
+        <div class="time-block">
+            <span class="muted">Elapsed</span>
+            <span id="timeTotal">--</span>
+        </div>
+        <div class="time-block">
+            <span class="muted">Remaining</span>
+            <span id="timeEstimate">--</span>
+        </div>
+        
+    </div>
+</div>
+
             </div>
         </div>
         <div id="debugInfo" class="debug hidden"></div>

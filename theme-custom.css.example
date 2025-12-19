@@ -21,6 +21,7 @@
 /* Default Blue Theme (already active in print-progress.css) */
 /*
 :root {
+    --theme-progress-opacity: 0.35;
     --theme-primary: #3A86FF;
     --theme-secondary: #1E5ED9;
     --theme-progress: #3A86FF;
@@ -31,6 +32,7 @@
 
 /* Purple/Violet Theme */
 :root {
+    --theme-progress-opacity: 0.35;
     --theme-primary: #8B5CF6;        /* Rich purple */
     --theme-secondary: #6D28D9;      /* Deep violet */
     --theme-progress: #8B5CF6;       /* Purple progress */
@@ -41,6 +43,7 @@
 /* Green/Emerald Theme */
 /*
 :root {
+    --theme-progress-opacity: 0.35;
     --theme-primary: #10B981;
     --theme-secondary: #059669;
     --theme-progress: #10B981;
@@ -52,6 +55,7 @@
 /* Orange/Amber Theme */
 /*
 :root {
+    --theme-progress-opacity: 0.35;
     --theme-primary: #F59E0B;
     --theme-secondary: #D97706;
     --theme-progress: #F59E0B;
@@ -63,6 +67,7 @@
 /* Red/Rose Theme */
 /*
 :root {
+    --theme-progress-opacity: 0.35;
     --theme-primary: #EF4444;
     --theme-secondary: #DC2626;
     --theme-progress: #EF4444;
@@ -74,6 +79,7 @@
 /* Cyan/Teal Theme */
 /*
 :root {
+    --theme-progress-opacity: 0.35;
     --theme-primary: #06B6D4;
     --theme-secondary: #0891B2;
     --theme-progress: #06B6D4;
@@ -81,3 +87,4 @@
     --theme-thumbnail-glow: rgba(6, 182, 212, 0.4);
 }
 */
+

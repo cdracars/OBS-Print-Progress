@@ -10,7 +10,7 @@
       "flipHorizontal": false,
       "flipVertical": false,
       "showChamber": false,
-      "updateInterval": 2000,
+      "updateInterval": 750,
       "debug": false
     },
     {
@@ -21,7 +21,7 @@
       "flipHorizontal": false,
       "flipVertical": true,
       "showChamber": true,
-      "updateInterval": 2000,
+      "updateInterval": 750,
       "debug": false
     }
   ],
