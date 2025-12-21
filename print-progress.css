@@ -15,6 +15,7 @@
     --theme-progress: #3A86FF;
     --theme-glow: rgba(58, 134, 255, 0.15);
     --theme-thumbnail-glow: rgba(58, 134, 255, 0.4);
+    --theme-progress-opacity: 0.35;
 }
 
 * {
