@@ -1,25 +1,25 @@
 @echo off
 setlocal
-set PORT=8000
-set URL=http://localhost:%PORT%/printer.html
+cd /d "%~dp0"
 
-echo Starting simple server on %URL%
-echo Press Ctrl+C in the server window to stop it.
-echo.
-echo If Python is not installed, install from https://www.python.org/downloads/ or run:
-echo   winget install --id=Python.Python.3 -e
-echo.
+rem Starts the OBS Print Progress server and opens the setup page in your browser.
+rem Keep this window open while you stream.
 
-where python >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Python not found in PATH.
+set PY=
+where py >nul 2>&1 && set PY=py -3
+if not defined PY (
+    where python >nul 2>&1 && set PY=python
+)
+if not defined PY (
+    echo Python 3 is required but was not found.
+    echo.
+    echo Install it from https://www.python.org/downloads/
+    echo   (tick "Add python.exe to PATH" during setup^)
+    echo or run:  winget install --id=Python.Python.3.12 -e
+    echo.
     pause
     exit /b 1
 )
 
-start "OBS Print Progress Server" cmd /k "cd /d %~dp0 && python -m http.server %PORT%"
-
-echo Use this URL in an OBS Browser source (replace printer id):
-echo   %URL%?printer=yourid
-echo If loading fails due to CORS, add your OBS origin to Moonraker cors_domains (see README).
-pause
+%PY% server.py %*
+if errorlevel 1 pause

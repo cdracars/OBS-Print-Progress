@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Toolpath</title>
+    <link rel="stylesheet" href="toolpath.css">
+</head>
+<body>
+    <!--
+        Live Toolpath overlay: a real-time 3D twin of the current print.
+        OBS Browser source:  http://localhost:8000/toolpath.html?printer=<id>
+        Try without a printer:  toolpath.html?demo=1
+        All options are documented at the top of toolpath.js and in README.md.
+    -->
+    <canvas id="tpCanvas"></canvas>
+
+    <div class="tp-hud">
+        <div class="tp-header">
+            <span class="tp-name" id="tpName">Printer</span>
+            <span class="tp-pill idle" id="tpStatus">Loading…</span>
+        </div>
+
+        <div class="tp-message hidden" id="tpMessage"></div>
+
+        <div class="tp-loading hidden" id="tpLoading">
+            <div class="tp-loading-text" id="tpLoadingText">Building digital twin</div>
+            <div class="tp-loading-track"><div class="tp-loading-bar" id="tpLoadingBar"></div></div>
+        </div>
+
+        <div class="tp-legend" id="tpLegend"></div>
+
+        <div class="tp-stats">
+            <div class="tp-stat">
+                <span class="tp-label">Layer</span>
+                <span class="tp-value" id="tpLayer">--</span>
+            </div>
+            <div class="tp-stat">
+                <span class="tp-label">Height</span>
+                <span class="tp-value" id="tpZ">--</span>
+            </div>
+            <div class="tp-stat">
+                <span class="tp-label">Progress</span>
+                <span class="tp-value" id="tpPercent">--</span>
+            </div>
+            <div class="tp-stat tp-stat-feature">
+                <span class="tp-label">Printing</span>
+                <span class="tp-value"><span class="tp-swatch" id="tpSwatch"></span><span id="tpFeature">--</span></span>
+            </div>
+            <div class="tp-progress"><div class="tp-progress-fill" id="tpProgressFill"></div></div>
+        </div>
+    </div>
+
+    <script src="gcode-toolpath.js"></script>
+    <script src="toolpath-demo.js"></script>
+    <script src="toolpath-renderer.js"></script>
+    <script src="toolpath.js"></script>
+</body>
+</html>

@@ -1,41 +1,57 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "description": "Configuration file for OBS Print Progress overlay. Define multiple printers and select which one to display using ?printer=id query parameter in your OBS browser source URL.",
+  "description": "Printers for OBS Print Progress. Easiest: run server.py and use the setup page at http://localhost:8000, which writes printers.json for you. Select a printer in OBS with ?printer=<id>.",
   "printers": [
     {
-      "id": "printer1",
-      "name": "Printer 1",
-      "ip": "printer1.local",
+      "id": "voron",
+      "name": "Voron 2.4",
+      "type": "klipper",
+      "ip": "voron.local",
       "camera": "",
       "flipHorizontal": false,
       "flipVertical": false,
-      "showChamber": false,
+      "showChamber": true,
       "updateInterval": 750,
       "debug": false
     },
     {
-      "id": "printer2",
-      "name": "Printer 2",
-      "ip": "printer2.local",
-      "camera": "",
-      "flipHorizontal": false,
-      "flipVertical": true,
-      "showChamber": true,
-      "updateInterval": 750,
-      "debug": false
+      "id": "u1",
+      "name": "Snapmaker U1",
+      "type": "snapmaker-u1",
+      "ip": "192.168.1.60"
+    },
+    {
+      "id": "p1s",
+      "name": "Workshop P1S",
+      "type": "bambu",
+      "ip": "192.168.1.70",
+      "serial": "01P00A000000000",
+      "accessCode": "12345678",
+      "model": "P1S"
+    },
+    {
+      "id": "centauri",
+      "name": "Centauri Carbon",
+      "type": "elegoo-cc",
+      "ip": "192.168.1.80",
+      "showChamber": true
     }
   ],
   "__comments": {
     "id": "(required) Unique identifier for the printer. Used in URL query parameter: ?printer=printer1",
     "name": "(required) Display name shown in the overlay",
-    "ip": "(required) Printer IP address or hostname. Moonraker must be accessible at http://IP:PORT (default port 7125)",
+    "ip": "(required) Printer IP address or hostname. For Klipper include :7125 only if Moonraker isn't behind Mainsail/Fluidd on port 80 (server.py tries both)",
     "camera": "(optional) Full camera stream URL. If empty, auto-generates: http://IP/webcam/?action=stream",
     "flipHorizontal": "(optional, default: false) Mirror camera horizontally",
     "flipVertical": "(optional, default: false) Flip camera vertically",
     "showChamber": "(optional, default: false) Show chamber temperature if available. Auto-detects common sensor names",
     "updateInterval": "(optional, default: 2000) How often to poll printer status in milliseconds",
     "debug": "(optional, default: false) Enable debug logging in browser console. Can also be enabled via ?debug=true query parameter",
-    "usage": "In OBS Browser Source URL: file:///path/to/printer.html?printer=hoss to select the 'hoss' printer configuration"
+    "usage": "In the OBS Browser Source URL: http://localhost:8000/printer.html?printer=voron (or toolpath.html?printer=voron for the 3D twin)",
+    "type": "(optional, default: klipper) klipper | snapmaker-u1 | bambu | elegoo-cc. Non-Klipper types need server.py running",
+    "serial": "(bambu) Printer serial number",
+    "accessCode": "(bambu) LAN access code from the printer's network settings. Keep printers.json private",
+    "model": "(bambu) e.g. A1, A1 mini, P1S, P1P, P2S, X1 Carbon, H2D. Sets bed size and camera type",
+    "direct": "(optional, klipper only) true = overlays connect straight to Moonraker instead of through server.py (needs Moonraker cors_domains)"
   }
 }
-
