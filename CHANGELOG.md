@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bambu Lab, Elegoo Centauri Carbon and Snapmaker U1 support** via the new `server.py` bridge (Python standard library only)
+  - Bambu Lab: status over MQTT/TLS (P1/A1 delta reports merged), print file over implicit FTPS with the plate G-code extracted from the .3mf (adds the plate thumbnail), P1/A1 port-6000 camera re-served as MJPEG. X1/P2S/H2 cameras: RTSPS URL for an OBS Media Source
+  - Elegoo Centauri Carbon (CC1): SDCP v3 over WebSocket, UDP mainboard discovery, MJPEG camera, G-code download
+  - Snapmaker U1: Moonraker on port 7125
+  - Non-Klipper printers appear to the overlays as a Moonraker-compatible API, so `printer.html` and `toolpath.html` work unchanged
+- **Setup page** (`http://localhost:8000`): add printers without editing JSON, network discovery (Bambu SSDP, Elegoo UDP, common Klipper hostnames), connection test with clear error messages, copy-ready OBS URLs
+- Klipper printers are proxied through the server (HTTP and websocket), so Moonraker CORS setup is no longer needed
+- Live Toolpath follows printers that only report the current layer (Bambu Lab, Elegoo)
+- `tests/test_bridge.py` (36 tests) and `tests/fake_printers.py` simulated printers
 - **Live Toolpath overlay** (`toolpath.html`): a real-time 3D twin of the current print, rendered with WebGL2
   - Streams the printing G-code from Moonraker and parses it as it downloads (byte-level parser, ~25 MB/s, arcs supported)
   - Printed part drawn as shaded beads, a glowing hot trail behind the nozzle, and a holographic ghost of what's left to print
@@ -17,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replay animation on print completion, pulsing state while paused
   - `?demo=1` simulated print for trying it out and styling scenes without a printer
 - `tests/gcode-toolpath.test.js` - 23 AAA tests for the toolpath parser, live-position sync and demo generator
+
+### Changed
+
+- Start scripts now launch `server.py` and open the setup page. `linux-max-server-start.sh` was renamed to `linux-mac-server-start.sh`, the name the README already used
+- `printers.json` gains optional `type`, `serial`, `accessCode`, `model` and `direct` fields; existing files keep working (default type is Klipper)
 
 ## [1.4.0] - 2025-12-05
 

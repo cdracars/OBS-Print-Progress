@@ -15,3 +15,7 @@ build/
 # Personal overlays (keep local)
 printers.json
 theme-custom.css
+# Python
+__pycache__/
+*.pyc
+.printers-*.json

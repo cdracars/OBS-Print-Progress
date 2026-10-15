@@ -187,6 +187,9 @@
         approx: 0,          // segments Klipper has read (upper bound)
         onPath: false,      // nozzle currently on an extrusion segment
         updatedAt: 0,
+        layerNum: 0,        // layer-based sync (printers without file_position)
+        layerSince: 0,
+        layerRate: 0,
         percent: 0,
         replayStart: 0
     };
@@ -225,7 +228,9 @@
         const model = live.model;
         if (!model || !model.count) return;
 
-        if (state === 'printing' || state === 'paused') {
+        if ((state === 'printing' || state === 'paused') && typeof vsd.file_position !== 'number') {
+            syncByLayer(model, ps, state);
+        } else if (state === 'printing' || state === 'paused') {
             const approx = segmentIndexAtOffset(model.offsets, model.count, vsd.file_position || 0);
             let target = null;
             if (pos) {
@@ -260,6 +265,48 @@
         }
     }
 
+    /**
+     * Printers that only report the current layer (Bambu Lab, Elegoo via
+     * server.py): jump to the start of that layer, then advance through it at
+     * the speed measured on the previous layer (or the print's average).
+     */
+    function syncByLayer(model, ps, state) {
+        const info = ps.info || {};
+        const layers = model.layers;
+        let layer = Number(info.current_layer) || 0;
+        const reported = Number(info.total_layer) || 0;
+        if (!layers.length || layer <= 0) {
+            live.onPath = false;
+            live.rate = 0;
+            return;
+        }
+        // The printer's layer count can differ slightly from the file's markers.
+        if (reported && reported !== layers.length) layer = Math.round(layer * layers.length / reported);
+        layer = Math.min(Math.max(layer, 1), layers.length);
+
+        const now = performance.now();
+        const start = layers[layer - 1].start;
+        const end = layer < layers.length ? layers[layer].start : model.count;
+        if (layer !== live.layerNum) {
+            if (live.layerNum && layer === live.layerNum + 1 && live.layerSince) {
+                const secs = (now - live.layerSince) / 1000;
+                if (secs > 1) live.layerRate = (start - layers[layer - 2].start) / secs;
+            }
+            live.layerNum = layer;
+            live.layerSince = now;
+        }
+        const duration = Number(ps.print_duration) || 0;
+        const rate = live.layerRate || (duration > 0 ? start / duration : 0) || (end - start) / 30;
+        const inLayer = (now - live.layerSince) / 1000;
+        const estimate = state === 'printing' ? start + rate * inLayer : live.display; // hold while paused
+
+        live.target = Math.max(start, Math.min(end - 1, estimate));
+        live.rate = state === 'printing' ? rate : 0;
+        live.approx = end - 1;
+        live.onPath = state === 'printing';
+        live.updatedAt = now;
+    }
+
     // ============================================================
     // MODEL LOADING
     // ============================================================
@@ -277,6 +324,7 @@
         live.filename = filename;
         live.model = model;
         live.target = live.display = 0;
+        live.layerNum = live.layerRate = 0;
         renderer.setModel(model);
         renderer.invalidateSpeedRange();
         renderLegend(null);
@@ -395,7 +443,8 @@
         };
 
         setStatus('Connecting…', 'idle');
-        connect();
+        if (printer.websocket === false) startPolling();
+        else connect();
     }
 
     // ============================================================

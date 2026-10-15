@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Print Progress Setup</title>
+    <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+    <header class="top">
+        <div>
+            <h1>OBS Print Progress</h1>
+            <p class="sub">Add your printer, then paste a link into an OBS <b>Browser</b> source.</p>
+        </div>
+        <span class="version" id="version"></span>
+    </header>
+
+    <main>
+        <section>
+            <div class="section-head">
+                <h2>Your printers</h2>
+                <button class="btn" id="addBtn">+ Add printer</button>
+            </div>
+            <div id="printerList" class="cards"></div>
+            <p class="empty hidden" id="emptyState">No printers yet. Click <b>Add printer</b> to get started, or try the <a href="toolpath.html?demo=1" target="_blank">3D demo</a>.</p>
+        </section>
+
+        <section id="editor" class="panel hidden">
+            <h2 id="editorTitle">Add a printer</h2>
+
+            <div class="step">
+                <div class="step-label">1. What kind of printer?</div>
+                <div class="types" id="typePicker">
+                    <button type="button" class="type" data-type="klipper">
+                        <b>Klipper</b><span>Mainsail / Fluidd: Voron, Sovol, RatRig, Creality with Moonraker...</span>
+                    </button>
+                    <button type="button" class="type" data-type="bambu">
+                        <b>Bambu Lab</b><span>X1, P1, A1, P2S, H2 (LAN mode)</span>
+                    </button>
+                    <button type="button" class="type" data-type="elegoo-cc">
+                        <b>Elegoo Centauri Carbon</b><span>Original Centauri Carbon</span>
+                    </button>
+                    <button type="button" class="type" data-type="snapmaker-u1">
+                        <b>Snapmaker U1</b><span>4-toolhead U1</span>
+                    </button>
+                </div>
+                <div class="discover">
+                    <button type="button" class="btn ghost" id="discoverBtn">Search my network</button>
+                    <span class="hint" id="discoverHint">Finds Bambu Lab, Elegoo and common Klipper hostnames.</span>
+                </div>
+                <div id="discoverResults" class="found"></div>
+            </div>
+
+            <form id="form" class="step hidden" autocomplete="off">
+                <div class="step-label">2. Connection</div>
+                <div class="help" id="typeHelp"></div>
+
+                <label>Display name
+                    <input name="name" placeholder="My printer" required>
+                </label>
+                <label>IP address or hostname
+                    <input name="ip" placeholder="192.168.1.50" required>
+                </label>
+                <div class="only bambu">
+                    <label>Serial number
+                        <input name="serial" placeholder="01S00A..." spellcheck="false">
+                    </label>
+                    <label>LAN access code
+                        <input name="accessCode" placeholder="8 characters" spellcheck="false">
+                    </label>
+                    <label>Model
+                        <select name="model">
+                            <option value="A1">A1</option>
+                            <option value="A1 mini">A1 mini</option>
+                            <option value="P1S">P1S</option>
+                            <option value="P1P">P1P</option>
+                            <option value="P2S">P2S</option>
+                            <option value="X1 Carbon">X1 / X1 Carbon / X1E</option>
+                            <option value="H2D">H2D</option>
+                            <option value="H2S">H2S</option>
+                        </select>
+                    </label>
+                </div>
+
+                <details>
+                    <summary>More options</summary>
+                    <label>Camera URL <span class="muted">(optional, leave blank for automatic)</span>
+                        <input name="camera" placeholder="automatic">
+                    </label>
+                    <div class="checks">
+                        <label class="check"><input type="checkbox" name="flipHorizontal"> Mirror camera</label>
+                        <label class="check"><input type="checkbox" name="flipVertical"> Flip camera upside down</label>
+                        <label class="check"><input type="checkbox" name="showChamber"> Show chamber temperature</label>
+                        <label class="check only klipper snapmaker-u1"><input type="checkbox" name="direct"> Connect directly from OBS (advanced, needs Moonraker CORS)</label>
+                    </div>
+                </details>
+
+                <div class="result hidden" id="testResult"></div>
+
+                <div class="actions">
+                    <button type="button" class="btn ghost" id="cancelBtn">Cancel</button>
+                    <button type="button" class="btn ghost" id="testBtn">Test connection</button>
+                    <button type="submit" class="btn primary" id="saveBtn">Save printer</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="panel">
+            <h2>Adding it to OBS</h2>
+            <ol class="howto">
+                <li>In OBS, click <b>+</b> under Sources and choose <b>Browser</b>.</li>
+                <li>Paste a link from above into <b>URL</b>. Set width <b>1920</b> and height <b>1080</b> (or the size you want).</li>
+                <li>Keep this server running while you stream. On Windows, start it with <code>windows-server-start.bat</code>.</li>
+            </ol>
+            <p class="muted">Two overlays are available: <b>Status overlay</b> (camera, temps, progress, thumbnail) and <b>3D twin</b> (the print growing live in 3D, transparent background).</p>
+        </section>
+    </main>
+
+    <div class="toast hidden" id="toast"></div>
+    <script src="setup.js"></script>
+</body>
+</html>

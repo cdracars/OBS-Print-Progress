@@ -1,36 +1,70 @@
 # OBS Print Progress Overlays
 
-Real-time 3D printer status overlay for OBS Studio. Display print progress, temperatures, layer info, time estimates, camera feed, and G-code thumbnails from any Klipper/Moonraker printer.
+Real-time 3D printer status overlays for OBS Studio: print progress, temperatures, layers, time estimates, camera feed, G-code thumbnail, and a live 3D "digital twin" of the print.
+
+Works with **Klipper/Moonraker** printers (Voron, Sovol, RatRig, Creality with Moonraker...), the **Snapmaker U1**, **Bambu Lab** printers and the **Elegoo Centauri Carbon**.
 
 ## Quick Start
 
-**New to this project?** Follow these steps:
+1. **Install Python 3.8 or newer** (one time).
+   - Windows: get it from [python.org](https://www.python.org/downloads/) and tick **"Add python.exe to PATH"** during setup.
+   - macOS: [python.org](https://www.python.org/downloads/) or `brew install python`. Linux: usually already installed.
+2. **Download this project.** On GitHub use **Code → Download ZIP**, then unzip it somewhere permanent.
+3. **Start it.**
+   - Windows: double-click `windows-server-start.bat`
+   - macOS/Linux: run `./linux-mac-server-start.sh`
 
-1. **Download** - Clone or download this repository to your computer
-2. **Configure** - Copy `printers.json.example` to `printers.json` and edit:
-   - Set `id`: unique name (e.g., "printer1")
-   - Set `ip`: your printer's IP address (e.g., "192.168.1.100")
-   - Set `name`: display name for the overlay
-3. **Start Server** - Run `start-server.bat` (Windows) or `./start-server.sh` (Mac/Linux)
-4. **Add to OBS** - Create Browser source with URL: `http://localhost:8000/printer.html?printer=printer1`
-5. **Configure Moonraker CORS** - See [CORS setup](#cors-issues) if overlay shows connection errors
+   A setup page opens in your browser at `http://localhost:8000`. Keep the window open while you stream.
+4. **Add your printer** on the setup page. Pick the type, click **Search my network** (or type the IP), then click **Test connection** and **Save**.
+5. **Add it to OBS.** Click **Copy** next to an overlay, then in OBS add a **Browser** source, paste the URL, and set 1920×1080.
 
-That's it! The overlay will auto-update every 2 seconds with your printer's status.
+No config files to edit and no Moonraker CORS changes: the included server connects to the printer for OBS.
+
+### Supported printers
+
+| Printer | Status overlay | Camera | 3D twin | What you need |
+| --- | --- | --- | --- | --- |
+| Klipper / Moonraker | Yes | Yes (webcam configured in Mainsail/Fluidd) | Yes, follows the nozzle live | IP address |
+| Snapmaker U1 | Yes | If Moonraker lists a webcam | Yes, follows the nozzle live | IP address |
+| Bambu Lab P1P / P1S / A1 / A1 mini | Yes | Yes | Yes, follows the current layer | IP, serial number, LAN access code |
+| Bambu Lab X1 / P2S / H2D / H2S | Yes | Add the RTSPS stream to OBS as a Media Source (the setup page shows the URL) | Yes, follows the current layer | IP, serial number, LAN access code |
+| Elegoo Centauri Carbon | Yes | Yes | Yes, follows the current layer | IP address |
+| Elegoo Centauri Carbon 2 | Not yet (different protocol) | | | |
+
+**Bambu Lab notes:** the printer must allow local connections. If **Test connection** is refused, enable **LAN Only** mode on the printer, and on firmware with Bambu's 2025 authorization update also enable **Developer Mode**. LAN Only mode disconnects the printer from Bambu Cloud, so remote access from Bambu Handy stops working while it's on.
+
+**How well tested is this?** The status overlay itself has been used with real Klipper printers. The new server, including its Klipper proxying, has so far only been tested against simulated printers. The Bambu Lab, Elegoo and Snapmaker U1 support is implemented from the published community protocol documentation ([OpenBambuAPI](https://github.com/Doridian/OpenBambuAPI), [pycentauri](https://github.com/bjan/pycentauri)) and Snapmaker's open-sourced Moonraker fork. The simulated printers implement those protocols as documented. None of the new paths have been tried on the physical machines yet. If something doesn't work on your printer, please open an issue with the message shown on the setup page.
+
+## How it works
+
+`server.py` (Python standard library only, nothing to install) does three things:
+
+- Serves the overlays and the setup page on `http://localhost:8000`.
+- **Klipper/Moonraker/U1:** forwards requests (including the websocket) to the printer, so overlays load from the same origin and no CORS setup is needed.
+- **Bambu Lab and Elegoo:** connects using the printer's own protocol (Bambu: MQTT over TLS, FTPS for the print file, and the port-6000 camera stream; Elegoo: SDCP over WebSocket) and presents it to the overlays as a Moonraker-compatible API under `/p/<printer-id>/`.
+
+Printer settings live in `printers.json` next to the server. It's git-ignored and holds access codes, so keep it private. Overlays receive a copy without secrets. By default the server only accepts connections from the same computer. Use `python server.py --lan` if OBS runs on a different machine, then use that computer's IP instead of `localhost` in the OBS URLs.
+
+Server options: `python server.py --port 8001 --lan --no-browser --verbose`.
 
 ## Files
 
-- `printer.html` – the only HTML you load in OBS (`?printer=<id>` selects the printer)
-- `printers.json` – array of printer configs (id, ip, camera, flips, etc.)
-- `print-progress.css` – shared styling
-- `print-progress.js` – shared logic (polls printer + updates overlays)
-- `start-server.bat` – Windows helper to run a local server
-- `start-server.sh` – macOS/Linux helper to run a local server
-- `toolpath.html` – optional **Live Toolpath** overlay: a real-time 3D twin of the print (see below)
+- `server.py`, `bridge/` – local server, setup API and printer bridges (Moonraker proxy, Bambu Lab, Elegoo)
+- `setup.html`, `setup.js`, `setup.css` – the setup page
+- `printer.html` – the status overlay (`?printer=<id>` selects the printer)
+- `print-progress.css`, `print-progress.js` – status overlay styling and logic
+- `toolpath.html` – the **Live Toolpath** overlay: a real-time 3D twin of the print (see below)
 - `gcode-toolpath.js`, `toolpath-renderer.js`, `toolpath.js`, `toolpath-demo.js`, `toolpath.css` – Live Toolpath parser, WebGL renderer, app logic, demo generator and styling
+- `printers.json` – your printers (written by the setup page; git-ignored)
+- `windows-server-start.bat`, `linux-mac-server-start.sh` – start the server
 
 Keep everything in the same folder.
 
-## Configure printers
+## Manual configuration (advanced)
+
+You can still edit `printers.json` by hand, or skip the server and load the overlays straight from your Klipper printer (Klipper only). Everything below describes that manual route.
+
+### Configure printers
 
 1) Copy `printers.json.example` to `printers.json` (this file is git-ignored; keep your real IPs out of source control).
 2) Edit `printers.json`:
@@ -42,8 +76,11 @@ Keep everything in the same folder.
    - `showChamber`: `true` to show chamber temp if your config exposes a chamber temperature sensor (e.g., `temperature_sensor chamber` or `heater_generic chamber`)
    - `updateInterval`: Poll rate in ms (default 2000)
    - `debug`: `true` to show debug info, `false` to hide
+   - `type`: `klipper` (default), `snapmaker-u1`, `bambu` or `elegoo-cc` (used by `server.py`)
+   - `serial`, `accessCode`, `model`: Bambu Lab only
+   - `direct`: `true` makes overlays connect to a Klipper printer directly instead of through `server.py` (needs the CORS setup below)
 
-Moonraker/Mainsail CORS (needed for browser/OBS access):
+Moonraker/Mainsail CORS (only needed when **not** using `server.py`, or with `direct: true`):
 Add this to `mainsail.cfg` (or your main `moonraker.conf`), adjusting the IPs to match your OBS/desktop machine:
 
 ```ini
@@ -62,11 +99,12 @@ Camera orientation tips:
 - Check the raw stream (same URL the overlay uses). If it's mirrored or upside down compared to Mainsail's preview, set `flipHorizontal: true` and/or `flipVertical: true` in `printers.json`.
 - In OBS you can also right-click the Browser source → Transform → Flip to adjust per-source.
 
-## Select a printer in OBS
+### Select a printer in OBS
 
-1) Start a local server:
+1) Start the server:
    - Windows: double-click `windows-server-start.bat`
    - macOS/Linux: run `./linux-mac-server-start.sh` (ensure it's executable: `chmod +x linux-mac-server-start.sh`)
+   - Any static web server also works for Klipper printers with `direct` access, e.g. `python -m http.server 8000`
 2) In OBS, add a **Browser** source and set the URL to `http://localhost:8000/printer.html?printer=<id>` (matching an `id` from `printers.json`).
 3) Set the source width/height you want; the overlay will scale to fit.
 4) If loading over `file://` fails due to CORS, serve via the local server (above), embed configs inline, or pass everything via query params.
@@ -200,7 +238,10 @@ This project uses **Test-Driven Development (TDD)** with the **Arrange-Act-Asser
 ```powershell
 node tests/print-progress.test.js
 node tests/gcode-toolpath.test.js
+python -m unittest discover -s tests -p "test_*.py"
 ```
+
+The Python suite (`tests/test_bridge.py`) covers the server and printer bridges. It runs them against fake printers in `tests/fake_printers.py`, which speak MQTT over TLS, FTPS and the camera protocol (Bambu) and SDCP (Elegoo). You can also run those fakes by hand to try the overlays without hardware: `python tests/fake_printers.py --gcode some-file.gcode`.
 
 All tests must pass before committing changes. See [TESTING.md](TESTING.md) for detailed testing guide.
 
@@ -311,7 +352,7 @@ Debug output shows:
 
 1. **Check UPDATE_INTERVAL** - Default is 2000ms (2 seconds), configured via `updateInterval` in printers.json or `?interval=` query param
 2. **Browser cache** - Hard refresh the OBS browser source (right-click → Refresh)
-3. **Server not running** - Ensure `start-server.sh` or `start-server.bat` is running if using `localhost:8000`
+3. **Server not running** - Ensure `windows-server-start.bat` or `linux-mac-server-start.sh` is running if using `localhost:8000`
 
 ### Chamber Temperature Not Showing
 
