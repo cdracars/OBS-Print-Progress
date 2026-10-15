@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Live Toolpath overlay** (`toolpath.html`): a real-time 3D twin of the current print, rendered with WebGL2
+  - Streams the printing G-code from Moonraker and parses it as it downloads (byte-level parser, ~25 MB/s, arcs supported)
+  - Printed part drawn as shaded beads, a glowing hot trail behind the nozzle, and a holographic ghost of what's left to print
+  - Live sync via a Moonraker websocket subscription (HTTP polling fallback). `file_position` is mapped to segments and refined with `motion_report.live_position` to compensate for Klipper lookahead
+  - Colour modes: height gradient (theme colours), slicer feature type, feedrate heatmap
+  - Replay animation on print completion, pulsing state while paused
+  - `?demo=1` simulated print for trying it out and styling scenes without a printer
+- `tests/gcode-toolpath.test.js` - 23 AAA tests for the toolpath parser, live-position sync and demo generator
+
 ## [1.4.0] - 2025-12-05
 
 ### Added

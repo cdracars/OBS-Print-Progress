@@ -25,6 +25,8 @@ That's it! The overlay will auto-update every 2 seconds with your printer's stat
 - `print-progress.js` – shared logic (polls printer + updates overlays)
 - `start-server.bat` – Windows helper to run a local server
 - `start-server.sh` – macOS/Linux helper to run a local server
+- `toolpath.html` – optional **Live Toolpath** overlay: a real-time 3D twin of the print (see below)
+- `gcode-toolpath.js`, `toolpath-renderer.js`, `toolpath.js`, `toolpath-demo.js`, `toolpath.css` – Live Toolpath parser, WebGL renderer, app logic, demo generator and styling
 
 Keep everything in the same folder.
 
@@ -103,6 +105,68 @@ http://localhost:8000/printer.html?ip=192.168.1.100&name=MyPrinter&chamber=1&deb
 http://localhost:8000/printer.html?printer=printer2&interval=5000
 ```
 
+## Live Toolpath (3D digital twin)
+
+![Live Toolpath overlay mid-print](docs/live-toolpath.jpg)
+
+`toolpath.html` is a second, independent overlay. It downloads the G-code file currently printing from Moonraker, rebuilds every extrusion move in 3D, and grows the model in sync with the real printer:
+
+- **Printed part** is drawn as shaded plastic beads, with visible layer lines
+- **Hot trail**: the most recently extruded path glows and cools down behind the nozzle
+- **Holographic ghost** of the part of the print that hasn't been printed yet, with a scanline sweeping through it
+- **Nozzle tracking**: uses `motion_report.live_position` to find the segment the nozzle is actually on. Klipper reads ahead of the nozzle, so `file_position` alone would run ahead
+- **Victory lap**: when the print completes, the whole build replays in a few seconds
+- Live via the Moonraker **websocket** (falls back to HTTP polling); the model appears progressively while the file downloads
+- Transparent background in OBS, so you can stack it over or beside the camera overlay
+
+### Try it without a printer
+
+```bash
+http://localhost:8000/toolpath.html?demo=1
+```
+
+Demo mode generates a sliced-looking twisted star tower in the browser and simulates printing it (with lookahead and a Z offset, like a real Klipper machine).
+
+### Use it in OBS
+
+Add a **Browser** source with the same printer selection as `printer.html`:
+
+```bash
+http://localhost:8000/toolpath.html?printer=printer1
+```
+
+It uses the same `printers.json`, the same Moonraker CORS settings (see [CORS Issues](#cors-issues)) and the same `theme-custom.css` colours. It needs WebGL2: keep **Settings → Advanced → Sources → Enable Browser Source Hardware Acceleration** turned on in OBS.
+
+### Options
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `printer` / `ip` / `name` | | Select or override the printer, same as `printer.html` |
+| `demo` | `0` | Simulated print, no printer needed |
+| `color` | `height` | `height` (theme gradient), `feature` (walls / infill / supports... from slicer `;TYPE:` comments) or `speed` (feedrate heatmap) |
+| `spin` | `8` | Auto-rotation in degrees per second (`0` to stop) |
+| `pitch` | `26` | Camera elevation in degrees |
+| `zoom` | `1` | Zoom factor |
+| `trail` | `300` | Length of the glowing hot trail, in segments |
+| `width` | `0.45` | Bead width in mm |
+| `ghost` | `1` | `0` hides the unprinted remainder |
+| `hud` | `1` | `0` shows only the 3D view |
+| `glow` | `1` | `0` disables the CSS glow (saves GPU) |
+| `fps` | `60` | Frame-rate cap (`30` is plenty for streaming) |
+| `transparent` | auto | Transparent background. Automatic in OBS; set `1` to force it in a normal browser |
+| `demoDuration` | `150` | Seconds per simulated print in demo mode |
+
+In a browser (or OBS **Interact**) you can drag to orbit, scroll to zoom and double-click to reset.
+
+![Feature colouring](docs/live-toolpath-features.jpg)
+
+### Notes and limits
+
+- Works with PrusaSlicer, SuperSlicer, OrcaSlicer, Bambu Studio and Cura output; G2/G3 arcs are supported.
+- The whole file is downloaded once per print. Parsing runs at roughly 25 MB/s. A very large file (100 MB+) costs a few hundred MB of memory, so on weaker streaming PCs use `?ghost=0&fps=30`.
+- Layers come from slicer layer-change comments when present (vase mode included), otherwise from Z changes.
+- If the model loads but never progresses, check that `virtual_sdcard` and `motion_report` exist in your Klipper config (`[virtual_sdcard]` is required for printing from Mainsail/Fluidd anyway).
+
 ## Customizing Colors (Themes)
 
 The overlay supports custom color themes. Several example themes are included in `theme-custom.css.example`:
@@ -135,6 +199,7 @@ This project uses **Test-Driven Development (TDD)** with the **Arrange-Act-Asser
 
 ```powershell
 node tests/print-progress.test.js
+node tests/gcode-toolpath.test.js
 ```
 
 All tests must pass before committing changes. See [TESTING.md](TESTING.md) for detailed testing guide.
@@ -151,6 +216,8 @@ All tests must pass before committing changes. See [TESTING.md](TESTING.md) for 
 - **Null Safety** - 2 tests for optional chaining (?.) and nullish coalescing (??)
 
 **Total: 23 comprehensive tests** - Run with `node tests/print-progress.test.js`
+
+The Live Toolpath parser has its own suite (`tests/gcode-toolpath.test.js`, 23 tests), covering absolute and relative moves (G90/G91/M82/M83/G92), arcs, slicer feature and layer comments, exact byte offsets with CRLF/UTF-8 and arbitrary chunk boundaries, `file_position` mapping, nozzle-position refinement, and the demo generator.
 
 ### Contributing
 

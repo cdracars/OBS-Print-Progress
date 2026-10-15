@@ -1,0 +1,248 @@
+/* Live Toolpath overlay. Shares the theme variables of print-progress.css,
+   so theme-custom.css recolours both overlays. */
+
+:root {
+    --text: #e8eef7;
+    --muted: #9fb2c7;
+    --error: #ff6666;
+    --warn: #ffc857;
+    --idle: #5EA3FF;
+
+    --theme-primary: #3A86FF;
+    --theme-secondary: #1E5ED9;
+    --theme-glow: rgba(58, 134, 255, 0.15);
+    --theme-thumbnail-glow: rgba(58, 134, 255, 0.4);
+
+    /* Colour of the freshly extruded "hot" trail and nozzle glow */
+    --toolpath-hot: #ffb35c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+body {
+    background: transparent;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--text);
+}
+
+/* Outside OBS (a normal browser tab) give the hologram something to glow against */
+body.standalone {
+    background:
+        radial-gradient(ellipse at 50% 60%, rgba(30, 60, 120, 0.35), transparent 60%),
+        radial-gradient(ellipse at 50% 120%, rgba(58, 134, 255, 0.18), transparent 55%),
+        #05070d;
+}
+
+#tpCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: grab;
+    filter: drop-shadow(0 0 10px var(--theme-glow)) drop-shadow(0 0 3px var(--theme-thumbnail-glow));
+}
+
+#tpCanvas:active { cursor: grabbing; }
+body.no-glow #tpCanvas { filter: none; }
+
+/* ================= HUD ================= */
+
+.tp-hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    padding: 16px;
+}
+
+body.no-hud .tp-hud { display: none; }
+
+.tp-header {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    backdrop-filter: blur(6px);
+}
+
+.tp-name {
+    font-weight: 700;
+    color: var(--theme-primary);
+    letter-spacing: 0.02em;
+}
+
+.tp-pill {
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.tp-pill.ok { color: var(--theme-primary); }
+.tp-pill.idle { color: var(--idle); }
+.tp-pill.warn { color: var(--warn); }
+.tp-pill.error { color: var(--error); }
+
+.tp-message {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-width: min(520px, 80%);
+    text-align: center;
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.55);
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.tp-loading {
+    position: absolute;
+    left: 50%;
+    top: 16px;
+    transform: translateX(-50%);
+    width: min(360px, 60%);
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.tp-loading-track {
+    margin-top: 6px;
+    height: 3px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+
+.tp-loading-bar {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--theme-secondary), var(--theme-primary));
+    box-shadow: 0 0 10px var(--theme-primary);
+    transition: width 0.2s ease;
+}
+
+.tp-stats {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    padding: 10px 14px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    backdrop-filter: blur(6px);
+    max-width: calc(100% - 32px);
+}
+
+.tp-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 64px;
+}
+
+.tp-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+}
+
+.tp-value {
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.tp-progress {
+    flex-basis: 100%;
+    height: 3px;
+    margin-top: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+
+.tp-progress-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--theme-secondary), var(--theme-primary), var(--toolpath-hot));
+    transition: width 0.6s ease;
+}
+
+.tp-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--theme-primary);
+    box-shadow: 0 0 6px currentColor;
+    flex: none;
+}
+
+.tp-legend {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.tp-legend:not(:empty) {
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    backdrop-filter: blur(6px);
+}
+
+.tp-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tp-ramp {
+    width: 160px;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #295af2, #1ad9d9, #73f24d, #ffcc26, #ff4040);
+}
+
+.tp-ramp-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+}
+
+.hidden { display: none !important; }
