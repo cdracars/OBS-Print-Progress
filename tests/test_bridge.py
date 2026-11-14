@@ -695,6 +695,27 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(found, {'10.0.0.5': {80}, '10.0.0.245': {80}})
         self.assertEqual(calls[1], [('10.0.0.245', 80)], 'only silent attempts are retried')
 
+    def test_open_ports_respects_socket_budget(self):
+        # macOS defaults to 256 open files; never open more sweep sockets than allowed.
+        live, peak, lock = [0], [0], threading.Lock()
+        real_batch, real_budget = discovery._connect_batch, discovery._socket_budget
+
+        def fake(targets, timeout, opened, refused):
+            with lock:
+                live[0] += len(targets)
+                peak[0] = max(peak[0], live[0])
+            time.sleep(0.05)
+            for t in targets:
+                refused.add(t)
+            with lock:
+                live[0] -= len(targets)
+        discovery._connect_batch, discovery._socket_budget = fake, lambda: 96
+        try:
+            discovery.open_ports(['10.0.0.%d' % i for i in range(1, 255)])
+        finally:
+            discovery._connect_batch, discovery._socket_budget = real_batch, real_budget
+        self.assertLessEqual(peak[0], 96)
+
     def test_probe_host_uses_swept_ports(self):
         real = discovery.port_open
         discovery.port_open = lambda *a, **k: self.fail('should not re-check ports')

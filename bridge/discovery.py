@@ -199,6 +199,7 @@ def probe_host(ip, ports=None):
 
 SWEEP_PORTS = (7125, 18910, 80)
 SOCKETS_PER_BATCH = 200   # stays under select()'s 512-socket limit on Windows
+MAX_SWEEP_SOCKETS = 800   # all of a /24 x 3 ports in one round
 
 
 def _connect_batch(targets, timeout, opened, refused):
@@ -207,9 +208,12 @@ def _connect_batch(targets, timeout, opened, refused):
     import select
     pending = {}
     for t in targets:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setblocking(False)
         try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        except OSError:
+            break   # out of sockets: the rest count as unanswered and are retried
+        try:
+            s.setblocking(False)
             s.connect_ex(t)
         except OSError:
             s.close()
@@ -235,6 +239,19 @@ def _connect_batch(targets, timeout, opened, refused):
             s.close()
 
 
+def _socket_budget():
+    """How many sweep sockets may be open at once. Windows has no small
+    per-process limit; macOS defaults to 256 open files per process."""
+    try:
+        import resource
+        soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    except (ImportError, OSError, ValueError):
+        return MAX_SWEEP_SOCKETS
+    if soft == resource.RLIM_INFINITY:
+        return MAX_SWEEP_SOCKETS
+    return max(16, min(MAX_SWEEP_SOCKETS, (soft - 64) // 2))
+
+
 def open_ports(hosts, ports=SWEEP_PORTS, passes=((1.0,), (2.0,))):
     """{ip: {open ports}} for the given hosts.
 
@@ -247,13 +264,18 @@ def open_ports(hosts, ports=SWEEP_PORTS, passes=((1.0,), (2.0,))):
     for (timeout,) in passes:
         if not todo:
             break
-        batches = [todo[i:i + SOCKETS_PER_BATCH] for i in range(0, len(todo), SOCKETS_PER_BATCH)]
-        threads = [threading.Thread(target=_connect_batch, args=(b, timeout, opened, refused), daemon=True)
-                   for b in batches]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout + 1)
+        # Run as many batches at once as the socket budget allows.
+        budget = _socket_budget()
+        size = min(SOCKETS_PER_BATCH, budget)
+        batches = [todo[i:i + size] for i in range(0, len(todo), size)]
+        per_round = max(1, budget // size)
+        for r in range(0, len(batches), per_round):
+            threads = [threading.Thread(target=_connect_batch, args=(b, timeout, opened, refused), daemon=True)
+                       for b in batches[r:r + per_round]]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout + 1)
         todo = [t for t in todo if t not in opened and t not in refused]
     found = {}
     for ip, p in opened:
