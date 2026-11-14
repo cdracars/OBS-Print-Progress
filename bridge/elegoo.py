@@ -1,4 +1,5 @@
-"""Elegoo Centauri Carbon (original CC1) over SDCP v3.
+"""Elegoo printers over SDCP v3: the Centauri Carbon (original CC1) and the
+resin Saturn 4 Ultra / Mars 5 Ultra family.
 
 - Status: WebSocket on ws://<ip>:3030/websocket. Requests go to topic
   sdcp/request/<MainboardID>; the printer pushes sdcp/status/<MainboardID>.
@@ -7,8 +8,13 @@
 - Camera: MJPEG on http://<ip>:3031/video (enabled with Cmd 386).
 - G-code: downloaded over HTTP (/downloadFile/...) for the toolpath overlay.
 
-The Centauri Carbon 2 uses a different protocol (MQTT, port 1883) and is not
-supported yet.
+Resin printers (ElegooResinAdapter) use the same transport but report no
+nozzle/bed temperatures and no progress percentage (it comes from the layer
+count), print .ctb/.goo files (no toolpath), and offer the camera as an RTSP
+URL returned by Cmd 386.
+
+The Centauri Carbon 2 and older resin printers (Saturn 2 / 3 Ultra, which use
+SDCP over MQTT) speak a different protocol and are not supported yet.
 """
 
 import json
@@ -19,7 +25,7 @@ import urllib.request
 import uuid
 from urllib.parse import quote
 
-from .base import Adapter, deep_merge
+from .base import Adapter, deep_merge, wait_until
 from .httputil import CLIENT_GONE, send_error_json
 from .websocket import WebSocket
 
@@ -135,6 +141,35 @@ def extract_status(msg):
     return (status if isinstance(status, dict) else None), mbid
 
 
+def extract_video_url(msg):
+    """VideoUrl from a Cmd 386 (enable video) response, if this is one."""
+    data = msg.get('Data') if isinstance(msg.get('Data'), dict) else {}
+    inner = data.get('Data') if isinstance(data.get('Data'), dict) else {}
+    if data.get('Cmd') == CMD_ENABLE_VIDEO and inner.get('VideoUrl'):
+        url = str(inner['VideoUrl']).strip()
+        return url if '://' in url else 'http://' + url
+    return None
+
+
+def normalize_resin_status(st):
+    """SDCP v3 status from a resin printer (Saturn 4 Ultra, Mars 5 Ultra)."""
+    n = normalize_status(st)
+    info = st.get('PrintInfo') or {}
+    layer, total = n['layer'], n['total_layers']
+    if n['state'] == 'complete':
+        progress = 1.0
+    elif info.get('Progress') is not None:
+        progress = n['progress']
+    elif layer and total:
+        progress = min(1.0, layer / float(total))
+    elif n['elapsed'] is not None and n['remaining'] is not None and (n['elapsed'] + n['remaining']) > 0:
+        progress = n['elapsed'] / (n['elapsed'] + n['remaining'])
+    else:
+        progress = 0.0
+    n.update(progress=progress, heaters=False, nozzle=None, nozzle_target=None, bed=None, bed_target=None, _path='')
+    return n
+
+
 class ElegooAdapter(Adapter):
     kind = 'elegoo-cc'
     WS_PORT, VIDEO_PORT, HTTP_PORT, DISCOVERY_PORT = 3030, 3031, 80, 3000
@@ -144,6 +179,7 @@ class ElegooAdapter(Adapter):
         self.mainboard = cfg.get('mainboardId') or None
         self.raw = {}
         self.ws = None
+        self.video_url = None
         self.send_lock = threading.Lock()
 
     def request(self, cmd, data=None):
@@ -198,7 +234,13 @@ class ElegooAdapter(Adapter):
         if status:
             with self.lock:
                 deep_merge(self.raw, status)
-                self.state.update(normalize_status(self.raw))
+                self.state.update(self.normalize(self.raw))
+        video = extract_video_url(msg)
+        if video:
+            self.video_url = video
+
+    def normalize(self, raw):
+        return normalize_status(raw)
 
     def fetch_gcode(self, name):
         path = self.snapshot().get('_path') or name
@@ -221,8 +263,11 @@ class ElegooAdapter(Adapter):
             self.request(CMD_ENABLE_VIDEO, {'Enable': 1})
         except OSError:
             pass
+        return self.proxy_mjpeg(h, 'http://%s:%d/video' % (self.ip, self.VIDEO_PORT))
+
+    def proxy_mjpeg(self, h, url):
         try:
-            resp = urllib.request.urlopen('http://%s:%d/video' % (self.ip, self.VIDEO_PORT), timeout=10)
+            resp = urllib.request.urlopen(url, timeout=10)
         except Exception as err:
             return send_error_json(h, 502, 'Camera unavailable: %s' % err)
         try:
@@ -242,3 +287,26 @@ class ElegooAdapter(Adapter):
             pass
         finally:
             resp.close()
+
+
+class ElegooResinAdapter(ElegooAdapter):
+    kind = 'elegoo-resin'
+
+    def normalize(self, raw):
+        return normalize_resin_status(raw)
+
+    def fetch_gcode(self, name):
+        return None   # .ctb / .goo slices, nothing the toolpath can draw
+
+    def serve_camera(self, h):
+        try:
+            self.request(CMD_ENABLE_VIDEO, {'Enable': 1})
+        except OSError:
+            pass
+        wait_until(lambda: self.video_url, 4)
+        url = self.video_url
+        if not url:
+            return send_error_json(h, 404, 'The printer did not report a camera stream')
+        if not url.lower().startswith('http'):
+            return send_error_json(h, 404, 'This printer streams its camera over RTSP. Add %s to OBS as a Media Source.' % url)
+        return self.proxy_mjpeg(h, url)

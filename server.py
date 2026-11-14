@@ -9,7 +9,8 @@ Supported printers:
   - Klipper / Moonraker (Voron, Sovol, RatRig, Creality with Moonraker, ...)
   - Snapmaker U1 (Moonraker on port 7125)
   - Bambu Lab X1 / P1 / A1 / P2S / H2 (LAN mode + access code)
-  - Elegoo Centauri Carbon (SDCP)
+  - Elegoo Centauri Carbon and Saturn 4 Ultra / Mars 5 Ultra resin printers (SDCP)
+  - Prusa MINI / MK4 / XL / CORE One (PrusaLink)
 
 Python 3.8+ standard library only.
 
@@ -31,9 +32,10 @@ from bridge.base import wait_until
 from bridge.bambu import BambuAdapter
 from bridge.config import ConfigStore, masked, overlay_view
 from bridge.discovery import discover
-from bridge.elegoo import ElegooAdapter
+from bridge.elegoo import ElegooAdapter, ElegooResinAdapter
 from bridge.httputil import send_json, send_error_json, send_bytes, CLIENT_GONE
 from bridge.moonraker import MoonrakerAdapter, SnapmakerU1Adapter
+from bridge.prusa import PrusaLinkAdapter
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 VERSION = '2.0.0'
@@ -43,6 +45,8 @@ ADAPTERS = {
     'snapmaker-u1': SnapmakerU1Adapter,
     'bambu': BambuAdapter,
     'elegoo-cc': ElegooAdapter,
+    'elegoo-resin': ElegooResinAdapter,
+    'prusalink': PrusaLinkAdapter,
 }
 
 # Only these files are served; everything else (server code, printers.json

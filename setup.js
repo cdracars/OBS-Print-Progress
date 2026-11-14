@@ -3,7 +3,7 @@
     'use strict';
 
     const $ = id => document.getElementById(id);
-    const TYPE_LABELS = { klipper: 'Klipper', bambu: 'Bambu Lab', 'elegoo-cc': 'Centauri Carbon', 'snapmaker-u1': 'Snapmaker U1' };
+    const TYPE_LABELS = { klipper: 'Klipper', bambu: 'Bambu Lab', 'elegoo-cc': 'Centauri Carbon', 'elegoo-resin': 'Elegoo resin', prusalink: 'Prusa', 'snapmaker-u1': 'Snapmaker U1' };
     const RTSP_MODELS = /X1|P2S|H2/i;
 
     const HELP = {
@@ -13,7 +13,9 @@
             '<li>Open the network settings and note the <b>IP address</b> and <b>Access Code</b>.</li>' +
             '<li>Find the <b>serial number</b> in the device info (it\'s also in Bambu Studio / Handy).</li>' +
             '<li>If the test below says the connection was refused, turn on <b>LAN Only</b> mode, and on newer firmware also <b>Developer Mode</b>. Bambu blocks third-party apps otherwise.</li></ol>',
-        'elegoo-cc': 'Enter the IP address from the printer\'s network settings. This works with the original Centauri Carbon. The Centauri Carbon 2 uses a different protocol and isn\'t supported yet.'
+        'elegoo-cc': 'Enter the IP address from the printer\'s network settings. This works with the original Centauri Carbon. The Centauri Carbon 2 uses a different protocol and isn\'t supported yet.',
+        'elegoo-resin': 'Enter the IP address from the printer\'s network settings. This works with resin printers that speak SDCP over WebSocket, such as the Saturn 4 Ultra and Mars 5 Ultra (the Saturn 2 and 3 Ultra use an older protocol and aren\'t supported yet). Resin printers have no G-code, so only the status overlay applies. The camera is RTSP: add it to OBS as a Media Source.',
+        prusalink: 'On the printer, open <b>Settings &gt; Network &gt; PrusaLink</b> and note the <b>IP address</b> and <b>password</b> (the user name is always <code>maker</code>). Needs firmware 5.1 or newer. The status overlay works; the Live Toolpath doesn\'t, because PrusaLink doesn\'t report the current layer.'
     };
 
     let printers = [];
@@ -157,7 +159,10 @@
         $('typeHelp').innerHTML = HELP[type];
         $('form').classList.remove('hidden');
         const f = $('form');
-        f.serial.required = f.accessCode.required = type === 'bambu';
+        f.serial.required = type === 'bambu';
+        f.accessCode.required = type === 'bambu' || type === 'prusalink';
+        $('accessCodeLabel').textContent = type === 'prusalink' ? 'PrusaLink password' : 'LAN access code';
+        f.accessCode.placeholder = type === 'prusalink' ? 'from Settings > Network > PrusaLink' : '8 characters';
     }
 
     function openEditor(p) {
@@ -189,10 +194,11 @@
             data.accessCode = f.accessCode.value.trim();
             data.model = f.model.value;
         }
+        if (currentType === 'prusalink') data.accessCode = f.accessCode.value.trim();
         ['flipHorizontal', 'flipVertical', 'showChamber'].forEach(k => { if (f[k].checked) data[k] = true; });
         if (f.direct.checked && (currentType === 'klipper' || currentType === 'snapmaker-u1')) data.direct = true;
         if (currentType === 'bambu' && /X1|H2/i.test(data.model)) data.showChamber = true;
-        if (currentType === 'elegoo-cc') data.showChamber = true;
+        if (currentType === 'elegoo-cc' || currentType === 'elegoo-resin') data.showChamber = true;
         if (editing) data.id = editing;
         return data;
     }

@@ -40,13 +40,19 @@
                     <button type="button" class="type" data-type="elegoo-cc">
                         <b>Elegoo Centauri Carbon</b><span>Original Centauri Carbon</span>
                     </button>
+                    <button type="button" class="type" data-type="elegoo-resin">
+                        <b>Elegoo Saturn / Mars</b><span>Saturn 4 Ultra, Mars 5 Ultra (resin)</span>
+                    </button>
+                    <button type="button" class="type" data-type="prusalink">
+                        <b>Prusa</b><span>MINI, MK4, XL, CORE One (PrusaLink)</span>
+                    </button>
                     <button type="button" class="type" data-type="snapmaker-u1">
                         <b>Snapmaker U1</b><span>4-toolhead U1</span>
                     </button>
                 </div>
                 <div class="discover">
                     <button type="button" class="btn ghost" id="discoverBtn">Search my network</button>
-                    <span class="hint" id="discoverHint">Finds Bambu Lab, Elegoo and common Klipper hostnames.</span>
+                    <span class="hint" id="discoverHint">Finds Bambu Lab, Elegoo and common Klipper hostnames. Prusa printers need their IP entered by hand.</span>
                 </div>
                 <div id="discoverResults" class="found"></div>
             </div>
@@ -65,9 +71,13 @@
                     <label>Serial number
                         <input name="serial" placeholder="01S00A..." spellcheck="false">
                     </label>
-                    <label>LAN access code
+                </div>
+                <div class="only bambu prusalink">
+                    <label><span id="accessCodeLabel">LAN access code</span>
                         <input name="accessCode" placeholder="8 characters" spellcheck="false">
                     </label>
+                </div>
+                <div class="only bambu">
                     <label>Model
                         <select name="model">
                             <option value="A1">A1</option>

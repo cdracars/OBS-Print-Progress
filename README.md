@@ -2,7 +2,7 @@
 
 Real-time 3D printer status overlays for OBS Studio: print progress, temperatures, layers, time estimates, camera feed, G-code thumbnail, and a live 3D "digital twin" of the print.
 
-Works with **Klipper/Moonraker** printers (Voron, Sovol, RatRig, Creality with Moonraker...), the **Snapmaker U1**, **Bambu Lab** printers and the **Elegoo Centauri Carbon**.
+Works with **Klipper/Moonraker** printers (Voron, Sovol, RatRig, Creality with Moonraker...), the **Snapmaker U1**, **Bambu Lab** printers, the **Elegoo Centauri Carbon**, Elegoo **Saturn 4 Ultra / Mars 5 Ultra** resin printers and **Prusa** printers with PrusaLink (MINI, MK4, XL, CORE One).
 
 ## Quick Start
 
@@ -30,10 +30,15 @@ No config files to edit and no Moonraker CORS changes: the included server conne
 | Bambu Lab X1 / P2S / H2D / H2S | Yes | Add the RTSPS stream to OBS as a Media Source (the setup page shows the URL) | Yes, follows the current layer | IP, serial number, LAN access code |
 | Elegoo Centauri Carbon | Yes | Yes | Yes, follows the current layer | IP address |
 | Elegoo Centauri Carbon 2 | Not yet (different protocol) | | | |
+| Elegoo Saturn 4 Ultra / Mars 5 Ultra (resin) | Yes (no hotend/bed temps; shows the vat/enclosure temperature as chamber) | Add the RTSP stream to OBS as a Media Source | No (resin slices aren't G-code) | IP address |
+| Elegoo Saturn 2 / Saturn 3 Ultra | Not yet (older SDCP over MQTT) | | | |
+| Prusa MINI / MK4 / XL / CORE One (PrusaLink, firmware 5.1+) | Yes (no layer numbers) | No | No (PrusaLink doesn't report the current layer) | IP address, PrusaLink password |
 
 **Bambu Lab notes:** the printer must allow local connections. If **Test connection** is refused, enable **LAN Only** mode on the printer, and on firmware with Bambu's 2025 authorization update also enable **Developer Mode**. LAN Only mode disconnects the printer from Bambu Cloud, so remote access from Bambu Handy stops working while it's on.
 
-**How well tested is this?** The status overlay itself has been used with real Klipper printers. The new server, including its Klipper proxying, has so far only been tested against simulated printers. The Bambu Lab, Elegoo and Snapmaker U1 support is implemented from the published community protocol documentation ([OpenBambuAPI](https://github.com/Doridian/OpenBambuAPI), [pycentauri](https://github.com/bjan/pycentauri)) and Snapmaker's open-sourced Moonraker fork. The simulated printers implement those protocols as documented. None of the new paths have been tried on the physical machines yet. If something doesn't work on your printer, please open an issue with the message shown on the setup page.
+**Prusa notes:** the password is under **Settings → Network → PrusaLink** on the printer (the user name is always `maker`). Older firmware that shows an API key instead works too: enter the key as the password.
+
+**How well tested is this?** The status overlay itself has been used with real Klipper printers. The new server, including its Klipper proxying, has so far only been tested against simulated printers. The Bambu Lab, Elegoo and Snapmaker U1 support is implemented from the published community protocol documentation ([OpenBambuAPI](https://github.com/Doridian/OpenBambuAPI), [pycentauri](https://github.com/bjan/pycentauri)) and Snapmaker's open-sourced Moonraker fork. The simulated printers implement those protocols as documented. Elegoo resin support follows Elegoo's published [SDCP v3 spec](https://github.com/cbd-tech/SDCP-Smart-Device-Control-Protocol-V3.0.0) and Prusa support follows the [PrusaLink OpenAPI spec](https://github.com/prusa3d/Prusa-Link-Web). None of the new paths have been tried on the physical machines yet. If something doesn't work on your printer, please open an issue with the message shown on the setup page.
 
 ## How it works
 
@@ -41,7 +46,7 @@ No config files to edit and no Moonraker CORS changes: the included server conne
 
 - Serves the overlays and the setup page on `http://localhost:8000`.
 - **Klipper/Moonraker/U1:** forwards requests (including the websocket) to the printer, so overlays load from the same origin and no CORS setup is needed.
-- **Bambu Lab and Elegoo:** connects using the printer's own protocol (Bambu: MQTT over TLS, FTPS for the print file, and the port-6000 camera stream; Elegoo: SDCP over WebSocket) and presents it to the overlays as a Moonraker-compatible API under `/p/<printer-id>/`.
+- **Bambu Lab, Elegoo and Prusa:** connects using the printer's own protocol (Bambu: MQTT over TLS, FTPS for the print file, and the port-6000 camera stream; Elegoo: SDCP over WebSocket; Prusa: the PrusaLink HTTP API) and presents it to the overlays as a Moonraker-compatible API under `/p/<printer-id>/`.
 
 Printer settings live in `printers.json` next to the server. It's git-ignored and holds access codes, so keep it private. Overlays receive a copy without secrets. By default the server only accepts connections from the same computer. Use `python server.py --lan` if OBS runs on a different machine, then use that computer's IP instead of `localhost` in the OBS URLs.
 
@@ -49,7 +54,7 @@ Server options: `python server.py --port 8001 --lan --no-browser --verbose`.
 
 ## Files
 
-- `server.py`, `bridge/` – local server, setup API and printer bridges (Moonraker proxy, Bambu Lab, Elegoo)
+- `server.py`, `bridge/` – local server, setup API and printer bridges (Moonraker proxy, Bambu Lab, Elegoo, PrusaLink)
 - `setup.html`, `setup.js`, `setup.css` – the setup page
 - `printer.html` – the status overlay (`?printer=<id>` selects the printer)
 - `print-progress.css`, `print-progress.js` – status overlay styling and logic
@@ -76,8 +81,8 @@ You can still edit `printers.json` by hand, or skip the server and load the over
    - `showChamber`: `true` to show chamber temp if your config exposes a chamber temperature sensor (e.g., `temperature_sensor chamber` or `heater_generic chamber`)
    - `updateInterval`: Poll rate in ms (default 2000)
    - `debug`: `true` to show debug info, `false` to hide
-   - `type`: `klipper` (default), `snapmaker-u1`, `bambu` or `elegoo-cc` (used by `server.py`)
-   - `serial`, `accessCode`, `model`: Bambu Lab only
+   - `type`: `klipper` (default), `snapmaker-u1`, `bambu`, `elegoo-cc`, `elegoo-resin` or `prusalink` (used by `server.py`)
+   - `serial`, `accessCode`, `model`: Bambu Lab only, except `accessCode`, which also holds the PrusaLink password for `prusalink`
    - `direct`: `true` makes overlays connect to a Klipper printer directly instead of through `server.py` (needs the CORS setup below)
 
 Moonraker/Mainsail CORS (only needed when **not** using `server.py`, or with `direct: true`):

@@ -87,8 +87,10 @@ def probe_elegoo(seconds, results):
             d = json.loads(data.decode('utf-8', 'replace')).get('Data') or {}
         except ValueError:
             continue
+        machine = '%s %s' % (d.get('MachineName') or '', d.get('Name') or '')
+        resin = any(w in machine.lower() for w in ('saturn', 'mars', 'jupiter'))
         results[('elegoo', addr[0])] = {
-            'type': 'elegoo-cc', 'ip': d.get('MainboardIP') or addr[0],
+            'type': 'elegoo-resin' if resin else 'elegoo-cc', 'ip': d.get('MainboardIP') or addr[0],
             'name': d.get('Name') or d.get('MachineName') or 'Elegoo printer',
             'model': d.get('MachineName') or '', 'mainboardId': d.get('MainboardID') or '',
         }
