@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Elegoo Saturn 4 Ultra / Mars 5 Ultra (resin)** (`elegoo-resin`): SDCP v3 over WebSocket like the Centauri Carbon; progress from the layer count, no hotend/bed temperatures (the overlay shows `--`), vat/enclosure temperature as chamber, RTSP camera URL from Cmd 386. Discovery picks the resin type for Saturn/Mars/Jupiter machines
 - **Prusa printers with PrusaLink** (`prusalink`, MINI / MK4 / XL / CORE One, firmware 5.1+): status polled from `/api/v1/status` with digest auth (user `maker`) or an API key. Status overlay only; PrusaLink reports no layer or file position for the Live Toolpath
 - Setup page entries for both, and fake printers plus tests for each
+- Status overlay collapses into a compact card when there's no camera picture (no camera URL, the stream fails, or its frames are blank), and hides the empty thumbnail box when the file has no thumbnail. It expands again when the camera comes back
+- `tools/anycubic_probe.py`: read-only probe for Anycubic printers in LAN mode (handshake, MQTT, message dump) to build Photon P1 support from real data; `bridge/aes.py` pure-Python AES-128-CBC for its handshake
 
 - **Bambu Lab, Elegoo Centauri Carbon and Snapmaker U1 support** via the new `server.py` bridge (Python standard library only)
   - Bambu Lab: status over MQTT/TLS (P1/A1 delta reports merged), print file over implicit FTPS with the plate G-code extracted from the .3mf (adds the plate thumbnail), P1/A1 port-6000 camera re-served as MJPEG. X1/P2S/H2 cameras: RTSPS URL for an OBS Media Source

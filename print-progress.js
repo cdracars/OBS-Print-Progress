@@ -364,38 +364,95 @@
         if (printerNameEl) printerNameEl.textContent = PRINTER_NAME;
     }
 
+    /**
+     * Compact layout when there's no usable camera picture: body.no-camera
+     * collapses the full-frame view into a card with just the stats.
+     */
+    function setCameraAvailable(ok) {
+        document.body.classList.toggle('no-camera', !ok);
+        document.body.classList.toggle('has-camera', ok);
+    }
+
+    /**
+     * True when the current frame is effectively blank: no pixels, or one
+     * flat colour (black "no signal" screens, grey placeholders, a covered
+     * lens). Sampled on a tiny canvas. A cross-origin stream can't be read;
+     * that's treated as a real picture.
+     */
+    function isBlankFrame(img) {
+        if (!img.naturalWidth || !img.naturalHeight) return true;
+        try {
+            const w = 32, h = 18;
+            const canvas = isBlankFrame.canvas || (isBlankFrame.canvas = document.createElement('canvas'));
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, w, h);
+            const px = ctx.getImageData(0, 0, w, h).data;
+            let sum = 0, sumSq = 0;
+            const n = w * h;
+            for (let i = 0; i < px.length; i += 4) {
+                const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+                sum += lum;
+                sumSq += lum * lum;
+            }
+            const mean = sum / n;
+            const std = Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+            return std < 3 || (mean < 6 && std < 6);
+        } catch (err) {
+            return false;   // tainted canvas: can't inspect, assume it's fine
+        }
+    }
+
     function setupCamera() {
         const cameraEl = document.getElementById('cameraFeed');
         if (!cameraEl) return;
 
-        if (CAMERA_URL) {
-            let retryCount = 0;
-            const maxRetries = 3;
-
-            const loadCamera = () => {
-                cameraEl.src = CAMERA_URL + (retryCount > 0 ? `?retry=${retryCount}&t=${Date.now()}` : '');
-                cameraEl.classList.remove('hidden');
-                const flips = [];
-                if (CAMERA_FLIP_X) flips.push('scaleX(-1)');
-                if (CAMERA_FLIP_Y) flips.push('scaleY(-1)');
-                cameraEl.style.transform = flips.join(' ');
-            };
-
-            cameraEl.onload = () => cameraEl.classList.add('loaded');
-
-            cameraEl.onerror = () => {
-                cameraEl.classList.remove('loaded');
-                retryCount++;
-                if (retryCount <= maxRetries) {
-                    const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
-                    setTimeout(loadCamera, delay);
-                }
-            };
-
-            loadCamera();
-        } else {
+        if (!CAMERA_URL) {
             cameraEl.classList.add('hidden');
+            setCameraAvailable(false);
+            return;
         }
+
+        let retryCount = 0;
+        let checkTimer = null;
+
+        const loadCamera = () => {
+            cameraEl.src = CAMERA_URL + (retryCount > 0 ? `${CAMERA_URL.includes('?') ? '&' : '?'}retry=${retryCount}&t=${Date.now()}` : '');
+            cameraEl.classList.remove('hidden');
+            const flips = [];
+            if (CAMERA_FLIP_X) flips.push('scaleX(-1)');
+            if (CAMERA_FLIP_Y) flips.push('scaleY(-1)');
+            cameraEl.style.transform = flips.join(' ');
+        };
+
+        // Re-check the picture now and then: a stream can go black or come
+        // back (camera unplugged, lights off, printer rebooted).
+        const checkPicture = () => {
+            const ok = cameraEl.classList.contains('loaded') && !isBlankFrame(cameraEl);
+            setCameraAvailable(ok);
+            if (DEBUG) console.log('[OBS Print Progress] Camera picture', ok ? 'ok' : 'blank or missing');
+        };
+
+        cameraEl.onload = () => {
+            cameraEl.classList.add('loaded');
+            retryCount = 0;
+            // Give the stream a moment to deliver a real frame before judging it.
+            setTimeout(checkPicture, 1500);
+            if (!checkTimer) checkTimer = setInterval(checkPicture, 15000);
+        };
+
+        cameraEl.onerror = () => {
+            cameraEl.classList.remove('loaded');
+            setCameraAvailable(false);
+            retryCount++;
+            // Back off up to 30 s, but keep trying so the view expands again
+            // when the camera comes back.
+            const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 30000);
+            setTimeout(loadCamera, delay);
+        };
+
+        loadCamera();
     }
 
     // ============================================================
@@ -462,6 +519,8 @@
     function hideThumbnail() {
         const thumbEl = document.getElementById("thumbnail");
         const fileLabel = document.getElementById("thumbnailFilename");
+        const previewContainer = document.getElementById("previewFloating");
+        if (previewContainer) previewContainer.classList.add('empty');
         if (thumbEl) {
             thumbEl.src = "";
             thumbEl.style.display = "none";
@@ -602,7 +661,7 @@
                     if (normalized && loadedFor !== normalized) {
                         thumbEl.dataset.loadedFor = normalized;
                         thumbEl.style.display = "none";
-                        if (previewContainer) previewContainer.classList.remove('loaded');
+                        if (previewContainer) previewContainer.classList.remove('loaded', 'empty');
 
                         extractThumbnailFromGcode(normalized).then(b64 => {
                             if (b64 && b64.length > 100) {
