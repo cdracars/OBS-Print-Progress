@@ -484,6 +484,33 @@
     // THUMBNAIL
     // ============================================================
 
+    /**
+     * Pick the best embedded slicer thumbnail from the start of a G-code file.
+     * Slicers often embed several sizes (e.g. 16x16, 48x48, 300x300) and the
+     * order varies, so take the largest complete PNG/JPG block. QOI (used by
+     * PrusaSlicer for Prusa printers' screens) isn't something a browser can
+     * show, so it's skipped. Returns { mime, b64 } or null.
+     */
+    function pickThumbnail(text) {
+        const blockRegex = /; thumbnail(?:_(PNG|JPG|QOI))? begin (\d+)x(\d+) \d+\r?\n([\s\S]*?); thumbnail(?:_(?:PNG|JPG|QOI))? end/g;
+        let best = null;
+        let match;
+        while ((match = blockRegex.exec(text)) !== null) {
+            const kind = (match[1] || 'PNG').toUpperCase();
+            if (kind === 'QOI') continue;
+            const area = Number(match[2]) * Number(match[3]);
+            const b64 = match[4]
+                .split('\n')
+                .map(line => line.trim().replace(/^;/, '').trim())
+                .filter(Boolean)
+                .join('');
+            if (b64.length > 100 && (!best || area > best.area)) {
+                best = { area, b64, mime: kind === 'JPG' ? 'image/jpeg' : 'image/png' };
+            }
+        }
+        return best ? { mime: best.mime, b64: best.b64 } : null;
+    }
+
     async function extractThumbnailFromGcode(filename) {
         try {
             const path = normalizeFilename(filename);
@@ -492,24 +519,12 @@
             const url = `http://${PRINTER_IP}/server/files/gcodes/${encodeURI(path)}`;
             if (DEBUG) console.log('[OBS Print Progress] Thumbnail URL:', url);
 
-            const resp = await fetch(url, { headers: { Range: "bytes=0-100000" } });
+            // Large thumbnails (300x300 and up) easily pass 100 KB of base64,
+            // so read the first 1 MB; thumbnails always sit at the top.
+            const resp = await fetch(url, { headers: { Range: "bytes=0-1048575" } });
             if (!resp.ok) return null;
 
-            const text = await resp.text();
-            const blockRegex = /; thumbnail begin \d+x\d+ \d+([\s\S]*?); thumbnail end/g;
-
-            let match;
-            let lastBlock = null;
-            while ((match = blockRegex.exec(text)) !== null) {
-                const b64 = match[1]
-                    .split("\n")
-                    .map(line => line.trim().replace(/^;/, "").trim())
-                    .filter(Boolean)
-                    .join("");
-                lastBlock = b64;
-            }
-
-            return lastBlock;
+            return pickThumbnail(await resp.text());
         } catch (err) {
             console.error("extractThumbnailFromGcode error:", err);
             return null;
@@ -663,9 +678,9 @@
                         thumbEl.style.display = "none";
                         if (previewContainer) previewContainer.classList.remove('loaded', 'empty');
 
-                        extractThumbnailFromGcode(normalized).then(b64 => {
-                            if (b64 && b64.length > 100) {
-                                thumbEl.src = `data:image/png;base64,${b64}`;
+                        extractThumbnailFromGcode(normalized).then(thumb => {
+                            if (thumb) {
+                                thumbEl.src = `data:${thumb.mime};base64,${thumb.b64}`;
                                 thumbEl.style.display = "block";
                                 if (previewContainer) previewContainer.classList.add('loaded');
 

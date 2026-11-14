@@ -351,6 +351,16 @@ body.no-camera #previewFloating {
     align-self: start;
 }
 
+/* The generic ".camera img" rule makes every image fill the frame; in the
+   card the thumbnail must stay in its grid cell, at its own aspect ratio. */
+body.no-camera #previewFloating .thumb-img {
+    position: static;
+    width: 150px !important;
+    height: auto !important;
+    max-height: 180px;
+    object-fit: contain;
+}
+
 body.no-camera .overlay-info {
     grid-area: info;
     max-width: none;
