@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -621,6 +622,22 @@ class DiscoveryTests(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
         self.assertEqual((f['type'], f['name'], f['lanMode'], f['supported']), ('anycubic', 'Photon P1', False, False))
+
+    def test_slow_reverse_dns_doesnt_stall_naming(self):
+        # Some routers take ~16 s per reverse lookup; names are optional.
+        real = discovery._hostname
+        discovery._hostname = lambda ip: (time.sleep(5), 'slow.lan')[1] if ip.endswith('.2') else 'hoss.lan'
+        try:
+            hits = [{'type': 'klipper', 'ip': '10.0.0.1', 'name': '10.0.0.1'},
+                    {'type': 'klipper', 'ip': '10.0.0.2', 'name': 'sam'}]
+            t0 = time.time()
+            discovery.name_results(hits, timeout=0.5)
+            elapsed = time.time() - t0
+        finally:
+            discovery._hostname = real
+        self.assertLess(elapsed, 2)
+        self.assertEqual(hits[0], {'type': 'klipper', 'ip': 'hoss.lan', 'name': 'hoss'})
+        self.assertEqual(hits[1], {'type': 'klipper', 'ip': '10.0.0.2', 'name': 'sam'}, 'falls back to the IP')
 
     def test_mark_known_matches_hostname_or_ip(self):
         found = [{'ip': '127.0.0.1', 'type': 'klipper'}, {'ip': 'LOCALHOST', 'type': 'klipper'},
