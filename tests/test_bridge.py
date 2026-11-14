@@ -23,7 +23,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import server  # noqa: E402
-from bridge import facade, mqtt  # noqa: E402
+from bridge import aes, facade, mqtt  # noqa: E402
 from bridge.bambu import BambuAdapter, normalize_report, job_filename, extract_plate_gcode, with_thumbnail, plate_from  # noqa: E402
 from bridge.base import deep_merge, wait_until  # noqa: E402
 from bridge.config import ConfigStore, overlay_view, masked, MASK  # noqa: E402
@@ -80,6 +80,21 @@ class MqttPacketTests(unittest.TestCase):
         self.assertEqual(ptype, mqtt.CONNECT)
         self.assertEqual(body[7] & 0xC0, 0xC0, 'username + password flags set')
         self.assertTrue(body.endswith(b'\x00\x04bblp\x00\x03abc'))
+
+
+class AesTests(unittest.TestCase):
+    def test_fips197_block(self):
+        key = bytes(range(16))
+        self.assertEqual(aes.decrypt_block(bytes.fromhex('69c4e0d86a7b0430d8cdb78070b4c55a'), aes.expand_key(key)).hex(),
+                         '00112233445566778899aabbccddeeff')
+
+    def test_cbc_with_pkcs7(self):
+        # openssl enc -aes-128-cbc -K 000102...0f -iv 0f0e...00 of b'hello anycubic'
+        key, iv = bytes(range(16)), bytes(range(15, -1, -1))
+        ct = bytes.fromhex('fb8598963d784b39d4e3729d962babd3')
+        self.assertEqual(aes.cbc_decrypt(ct, key, iv), b'hello anycubic')
+        with self.assertRaises(ValueError):
+            aes.cbc_decrypt(ct[:-1], key, iv)
 
 
 class WebSocketFrameTests(unittest.TestCase):
