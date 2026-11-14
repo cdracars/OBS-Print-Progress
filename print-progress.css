@@ -295,3 +295,79 @@ body {
     align-items: flex-start;
     gap: 2px;
 }
+
+/* =====================================================
+   NO PICTURE: COLLAPSE INTO A COMPACT CARD
+   body.no-camera is set by print-progress.js when there's no camera
+   URL, the stream fails, or its frames are blank. #previewFloating.empty
+   means no G-code thumbnail. Instead of a mostly empty full frame, the
+   stats pack into a card at the top; the rest stays transparent in OBS.
+   ===================================================== */
+
+#previewFloating.empty {
+    display: none;
+}
+
+body.no-camera {
+    height: auto;
+    align-items: flex-start;
+}
+
+body.no-camera .scene,
+body.no-camera .frame,
+body.no-camera .camera {
+    height: auto;
+}
+
+body.no-camera .camera {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+        "corner corner"
+        "thumb  info"
+        "bottom bottom";
+    gap: 12px;
+    padding: 14px;
+}
+
+body.no-camera #cameraFeed {
+    display: none !important;
+}
+
+body.no-camera .corner,
+body.no-camera #previewFloating,
+body.no-camera .overlay-info,
+body.no-camera .overlay-bottom {
+    position: static;
+}
+
+body.no-camera .corner {
+    grid-area: corner;
+    justify-self: start;
+}
+
+body.no-camera #previewFloating {
+    grid-area: thumb;
+    align-self: start;
+}
+
+body.no-camera .overlay-info {
+    grid-area: info;
+    max-width: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    align-content: start;
+}
+
+/* No thumbnail either: the chips take the full width */
+body.no-camera .camera:has(#previewFloating.empty) .overlay-info {
+    grid-column: 1 / -1;
+}
+
+body.no-camera .info-chip {
+    min-width: 0;
+}
+
+body.no-camera .overlay-bottom {
+    grid-area: bottom;
+}
