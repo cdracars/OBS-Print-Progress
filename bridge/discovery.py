@@ -158,10 +158,15 @@ def probe_host(ip):
         try:
             with urllib.request.urlopen('http://%s:7125/server/info' % ip, timeout=2) as r:
                 if 'result' in json.loads(r.read().decode('utf-8')):
-                    host = _hostname(ip)
-                    name = host.split('.')[0] if host else ip
-                    # Prefer port 80 (Mainsail/Fluidd) when it's there; server.py tries both.
-                    return {'type': 'klipper', 'ip': host or ip, 'name': name}
+                    # Klipper knows its own hostname; DNS names are added
+                    # afterwards by name_results() when they come back quickly.
+                    name = ip
+                    try:
+                        with urllib.request.urlopen('http://%s:7125/printer/info' % ip, timeout=2) as r2:
+                            name = (json.loads(r2.read().decode('utf-8')).get('result') or {}).get('hostname') or ip
+                    except Exception:
+                        pass
+                    return {'type': 'klipper', 'ip': ip, 'name': name}
         except Exception:
             pass
     if port_open(ip, 18910):
@@ -180,8 +185,7 @@ def probe_host(ip):
             urllib.request.urlopen('http://%s/api/version' % ip, timeout=2).close()
         except urllib.error.HTTPError as err:
             if err.code == 401 and 'printer api' in (err.headers.get('WWW-Authenticate') or '').lower():
-                host = _hostname(ip)
-                return {'type': 'prusalink', 'ip': ip, 'name': (host.split('.')[0] if host else '') or 'Prusa printer'}
+                return {'type': 'prusalink', 'ip': ip, 'name': 'Prusa printer'}
         except Exception:
             pass
     return None
@@ -194,12 +198,44 @@ def scan_subnet(results, timeout=6.0):
     net = ipaddress.ip_network(me + '/24', strict=False)
     hosts = [str(h) for h in net.hosts() if str(h) != me]
     end = _deadline(timeout)
+    hits = []
     with ThreadPoolExecutor(max_workers=64) as pool:
         for ip, found in zip(hosts, pool.map(probe_host, hosts)):
             if found:
-                results[(found['type'], ip)] = found
+                hits.append(found)
             if _remaining(end) <= 0:
                 break
+    name_results(hits)
+    for found in hits:
+        results[(found['type'], found['ip'])] = found
+
+
+def name_results(hits, timeout=1.5):
+    """Give sweep hits their DNS names, in parallel and time-boxed: some
+    routers take ~15 s per reverse lookup, and the IP works just as well.
+    Klipper printers use the name as their address (stable across DHCP)."""
+    names = {}
+
+    def lookup(ip):
+        names[ip] = _hostname(ip)
+
+    threads = [threading.Thread(target=lookup, args=(h['ip'],), daemon=True) for h in hits]
+    for t in threads:
+        t.start()
+    end = _deadline(timeout)
+    for t in threads:
+        t.join(max(0.0, _remaining(end)))
+    for h in hits:
+        host = names.get(h['ip']) or ''
+        if not host:
+            continue
+        short = host.split('.')[0]
+        if h['type'] == 'klipper':
+            if h['name'] in ('', h['ip']):
+                h['name'] = short
+            h['ip'] = host
+        elif h['name'] in ('Prusa printer', h['ip']):
+            h['name'] = short
 
 
 COMMON_HOSTS = ('mainsailos.local', 'fluiddpi.local', 'voron.local', 'klipper.local', 'printer.local',
@@ -233,13 +269,26 @@ def _resolve(host):
 def mark_known(found, saved):
     """Flag discovered printers that are already configured (same address,
     by name or by resolved IP), so the setup page only offers new ones."""
+    addrs = {str(p.get('ip') or '') for p in saved} | {f['ip'] for f in found}
+    resolved = {}
+
+    def lookup(a):
+        resolved[a] = _resolve(a)
+
+    # Time-boxed and parallel: DNS on some home networks is very slow.
+    threads = [threading.Thread(target=lookup, args=(a,), daemon=True) for a in addrs]
+    for t in threads:
+        t.start()
+    end = _deadline(2.0)
+    for t in threads:
+        t.join(max(0.0, _remaining(end)))
     known = set()
     for p in saved:
         ip = str(p.get('ip') or '')
         known.add(ip.lower())
-        known.add(_resolve(ip))
+        known.add(resolved.get(ip) or ip.lower())
     for f in found:
-        f['known'] = f['ip'].lower() in known or _resolve(f['ip']) in known
+        f['known'] = f['ip'].lower() in known or (resolved.get(f['ip']) or f['ip']) in known
     return found
 
 
