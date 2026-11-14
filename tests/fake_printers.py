@@ -1,12 +1,13 @@
-"""Fake Bambu Lab and Elegoo printers for testing server.py without hardware.
+"""Fake Bambu Lab, Elegoo and Prusa printers for testing server.py without hardware.
 
 They speak just enough of the real protocols:
   - FakeBambu:  MQTT over TLS (CONNECT/SUBSCRIBE/PUBLISH, P1-style delta
                 reports) and the port-6000 JPEG camera protocol.
   - FakeElegoo: SDCP over WebSocket, UDP discovery, /downloadFile and an
                 MJPEG /video stream.
+  - FakePrusaLink: PrusaLink v1 HTTP API with digest auth.
 
-Both simulate a print that advances through `layers` layers in `duration`
+All simulate a print that advances through `layers` layers in `duration`
 seconds.
 
 Run standalone (for manual / browser testing):
@@ -19,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import socket
 import ssl
 import struct
@@ -259,8 +261,10 @@ class FakeBambu:
 # ============================================================
 
 class FakeElegoo:
-    def __init__(self, gcode=b'G1 X0 Y0 Z0.2\nG1 X10 E1\n', filename='cube.gcode', sim=None, ws_port=0, http_port=0, udp_port=0):
+    def __init__(self, gcode=b'G1 X0 Y0 Z0.2\nG1 X10 E1\n', filename='cube.gcode', sim=None, ws_port=0, http_port=0, udp_port=0,
+                 resin=False, video_url=None):
         self.gcode, self.filename = gcode, filename
+        self.resin, self.video_url = resin, video_url
         self.sim = sim or SimPrint()
         self.mainboard = 'abc123mainboard'
         self.stop = threading.Event()
@@ -328,6 +332,20 @@ class FakeElegoo:
 
     def status(self):
         f = self.sim.frac()
+        if self.resin:
+            # Saturn 4 Ultra style: no nozzle/bed, no Progress, ticks in ms
+            return {
+                'Status': {
+                    'CurrentStatus': [1], 'TempOfUVLED': 38.2, 'TempOfBox': 27.5, 'TempTargetBox': 30, 'TimeLapseStatus': 0,
+                    'PrintInfo': {'Status': 9 if f >= 1 else 3, 'CurrentLayer': self.sim.layer(), 'TotalLayer': self.sim.layers,
+                                  'CurrentTicks': int(f * self.sim.duration * 1000) + 3600000,
+                                  'TotalTicks': int(self.sim.duration * 1000) + 3600000,
+                                  'Filename': self.filename, 'ErrorNumber': 0, 'TaskId': 't1'},
+                },
+                'MainboardID': self.mainboard,
+                'TimeStamp': int(time.time()),
+                'Topic': 'sdcp/status/' + self.mainboard,
+            }
         return {
             'Status': {
                 'CurrentStatus': [1],
@@ -369,10 +387,101 @@ class FakeElegoo:
                 self.requests.append(msg)
                 if msg['Data'].get('MainboardID') == self.mainboard and msg['Data']['Cmd'] == 0:
                     send(self.status())
+                if msg['Data']['Cmd'] == 386 and self.video_url:
+                    send({'Id': '', 'Data': {'Cmd': 386, 'Data': {'Ack': 0, 'VideoUrl': self.video_url},
+                                             'RequestID': msg['Data']['RequestID'], 'MainboardID': self.mainboard},
+                          'Topic': 'sdcp/response/' + self.mainboard})
         except (OSError, ConnectionError, IndexError, ValueError):
             pass
         finally:
             conn.close()
+
+
+# ============================================================
+# PRUSA (PrusaLink)
+# ============================================================
+
+class FakePrusaLink:
+    """PrusaLink v1 HTTP API with digest auth (user "maker") or, with
+    api_key=True, the older X-Api-Key header."""
+
+    REALM, NONCE = 'Printer API', 'fakenonce123'
+
+    def __init__(self, password='secretpass', sim=None, api_key=False, port=0, state=None):
+        self.password, self.api_key = password, api_key
+        self.sim = sim or SimPrint()
+        self.state = state
+        self.requests = []
+        fake = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def authorized(self):
+                if fake.api_key:
+                    return self.headers.get('X-Api-Key') == fake.password
+                auth = self.headers.get('Authorization') or ''
+                if not auth.startswith('Digest '):
+                    return False
+                f = dict(re.findall(r'(\w+)="?([^",]*)"?', auth[7:]))
+                md5 = lambda t: hashlib.md5(t.encode()).hexdigest()
+                ha1 = md5('maker:%s:%s' % (fake.REALM, fake.password))
+                ha2 = md5('GET:%s' % f.get('uri', ''))
+                if f.get('qop'):
+                    want = md5(':'.join((ha1, f.get('nonce', ''), f.get('nc', ''), f.get('cnonce', ''), f['qop'], ha2)))
+                else:
+                    want = md5('%s:%s:%s' % (ha1, f.get('nonce', ''), ha2))
+                return f.get('username') == 'maker' and f.get('response') == want
+
+            def send_obj(self, obj, code=200):
+                data = json.dumps(obj).encode()
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self):
+                fake.requests.append(self.path)
+                if not self.authorized():
+                    self.send_response(401)
+                    if not fake.api_key:
+                        self.send_header('WWW-Authenticate', 'Digest realm="%s", nonce="%s", qop="auth"' % (fake.REALM, fake.NONCE))
+                    self.send_header('Content-Length', '0')
+                    self.end_headers()
+                    return
+                if self.path == '/api/v1/info':
+                    return self.send_obj({'name': 'Prusa MINI', 'hostname': 'prusa-mini', 'nozzle_diameter': 0.4})
+                if self.path == '/api/v1/status':
+                    return self.send_obj(fake.status())
+                if self.path == '/api/v1/job':
+                    return self.send_obj({'id': 7, 'state': 'PRINTING', 'progress': fake.sim.frac() * 100,
+                                          'time_printing': 10, 'file': {'name': 'BENCHY~1.BGC', 'display_name': 'benchy_0.2mm_PLA_MINI.bgcode',
+                                                                        'path': '/usb', 'size': 123456, 'm_timestamp': 1}})
+                self.send_obj({}, 404)
+
+        self.http = ThreadingHTTPServer(('127.0.0.1', port), H)
+        self.http.daemon_threads = True
+        self.port = self.http.server_address[1]
+
+    def status(self):
+        f = self.sim.frac()
+        state = self.state or ('FINISHED' if f >= 1 else 'PRINTING')
+        st = {'printer': {'state': state, 'temp_nozzle': 214.9, 'target_nozzle': 215.0, 'temp_bed': 59.5, 'target_bed': 60.0,
+                          'axis_z': 2.4, 'flow': 100, 'speed': 100}}
+        if state != 'IDLE':
+            st['job'] = {'id': 7, 'progress': round(f * 100, 1), 'time_remaining': int((1 - f) * self.sim.duration),
+                         'time_printing': int(f * self.sim.duration)}
+        return st
+
+    def start(self):
+        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+        return self
+
+    def close(self):
+        self.http.shutdown()
+        self.http.server_close()
 
 
 if __name__ == '__main__':
@@ -384,8 +493,10 @@ if __name__ == '__main__':
     gcode = open(a.gcode, 'rb').read() if a.gcode else b'G1 X0 Y0 Z0.2\nG1 X10 E1\n'
     bambu = FakeBambu(sim=SimPrint(a.layers, a.duration), gcode=gcode).start()
     elegoo = FakeElegoo(gcode=gcode, sim=SimPrint(a.layers, a.duration)).start()
+    prusa = FakePrusaLink(sim=SimPrint(a.layers, a.duration)).start()
     print(json.dumps({'bambu': {'mqtt': bambu.mqtt_port, 'camera': bambu.camera_port, 'ftp': bambu.ftp_port, 'serial': bambu.serial, 'code': bambu.code},
-                      'elegoo': {'ws': elegoo.ws_port, 'http': elegoo.http_port, 'udp': elegoo.udp_port}}), flush=True)
+                      'elegoo': {'ws': elegoo.ws_port, 'http': elegoo.http_port, 'udp': elegoo.udp_port},
+                      'prusalink': {'http': prusa.port, 'password': prusa.password}}), flush=True)
     try:
         while True:
             time.sleep(1)

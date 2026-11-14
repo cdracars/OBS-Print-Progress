@@ -63,10 +63,13 @@ def moonraker_objects(n):
             'file_size': int(_num(n.get('file_size'))),
         },
         'display_status': {'progress': progress, 'message': None},
-        'extruder': {'temperature': _num(n.get('nozzle')), 'target': _num(n.get('nozzle_target'))},
-        'heater_bed': {'temperature': _num(n.get('bed')), 'target': _num(n.get('bed_target'))},
         'toolhead': {'axis_minimum': [0, 0, 0, 0], 'axis_maximum': [bx, by, 250, 0]},
     }
+    if n.get('heaters', True):
+        # Resin printers have no hotend or bed; leaving the objects out makes
+        # the overlay show "--" instead of 0°C.
+        objs['extruder'] = {'temperature': _num(n.get('nozzle')), 'target': _num(n.get('nozzle_target'))}
+        objs['heater_bed'] = {'temperature': _num(n.get('bed')), 'target': _num(n.get('bed_target'))}
     if n.get('chamber') is not None:
         chamber = {'temperature': _num(n.get('chamber'))}
         if n.get('chamber_target') is not None:

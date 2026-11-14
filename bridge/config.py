@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 
-TYPES = ('klipper', 'snapmaker-u1', 'bambu', 'elegoo-cc')
+TYPES = ('klipper', 'snapmaker-u1', 'bambu', 'elegoo-cc', 'elegoo-resin', 'prusalink')
 FIELDS = ('id', 'name', 'type', 'ip', 'serial', 'accessCode', 'model', 'mainboardId', 'camera',
           'flipHorizontal', 'flipVertical', 'showChamber', 'updateInterval', 'debug', 'direct')
 SECRET_FIELDS = ('accessCode',)
@@ -89,6 +89,8 @@ class ConfigStore:
                 clean.pop('accessCode', None)
         if clean['type'] == 'bambu' and not clean.get('accessCode'):
             return None, 'Bambu printers need the LAN access code (Settings > Network on the printer)'
+        if clean['type'] == 'prusalink' and not clean.get('accessCode'):
+            return None, 'Prusa printers need the PrusaLink password (Settings > Network > PrusaLink on the printer)'
         if any(p['id'] == clean['id'] for p in printers if p is not existing):
             return None, 'Another printer already uses the id "%s"' % clean['id']
 
@@ -124,7 +126,7 @@ def overlay_view(printers, host):
         v = {k: v for k, v in p.items() if k not in PRIVATE_FIELDS}
         if not p.get('direct'):
             v['ip'] = '%s/p/%s' % (host, p['id'])
-            if p.get('type') in ('bambu', 'elegoo-cc'):
+            if p.get('type') in ('bambu', 'elegoo-cc', 'elegoo-resin', 'prusalink'):
                 v.pop('camera', None)  # always use the bridge's camera stream
                 v['websocket'] = False  # translated printers are polled over HTTP
         out.append(v)

@@ -1,4 +1,4 @@
-"""Tests for server.py and the bridge package (Bambu, Elegoo, Moonraker proxy).
+"""Tests for server.py and the bridge package (Bambu, Elegoo, PrusaLink, Moonraker proxy).
 
 Run with:  python -m unittest discover -s tests -p "test_*.py"
 Integration tests use the fake printers in tests/fake_printers.py; the Bambu
@@ -28,9 +28,10 @@ from bridge.bambu import BambuAdapter, normalize_report, job_filename, extract_p
 from bridge.base import deep_merge, wait_until  # noqa: E402
 from bridge.config import ConfigStore, overlay_view, masked, MASK  # noqa: E402
 from bridge.discovery import bambu_from_ssdp  # noqa: E402
-from bridge.elegoo import ElegooAdapter, normalize_status, extract_status  # noqa: E402
+from bridge.elegoo import ElegooAdapter, ElegooResinAdapter, normalize_status, normalize_resin_status, extract_status, extract_video_url  # noqa: E402
+from bridge.prusa import PrusaLinkAdapter, normalize_status as prusa_normalize  # noqa: E402
 from bridge.websocket import encode_frame, read_frame  # noqa: E402
-from fake_printers import FakeBambu, FakeElegoo, SimPrint, FAKE_JPEG  # noqa: E402
+from fake_printers import FakeBambu, FakeElegoo, FakePrusaLink, SimPrint, FAKE_JPEG  # noqa: E402
 
 HAVE_OPENSSL = shutil.which('openssl') is not None
 
@@ -214,6 +215,70 @@ class ElegooNormalizeTests(unittest.TestCase):
         self.assertEqual(extract_status({'Topic': 'sdcp/attributes/mb3', 'Attributes': {}})[1], 'mb3')
 
 
+class ElegooResinNormalizeTests(unittest.TestCase):
+    def test_saturn_status_without_progress_or_heaters(self):
+        # Arrange: SDCP v3 resin status (Saturn 4 Ultra), ticks in ms, no Progress field
+        st = {'TempOfUVLED': 38, 'TempOfBox': 27.5, 'TempTargetBox': 30,
+              'PrintInfo': {'Status': 3, 'CurrentLayer': 250, 'TotalLayer': 1000, 'CurrentTicks': 1800000,
+                            'TotalTicks': 7200000, 'Filename': 'mini.goo'}}
+
+        # Act
+        n = normalize_resin_status(st)
+
+        # Assert
+        self.assertEqual(n['state'], 'printing')
+        self.assertAlmostEqual(n['progress'], 0.25)
+        self.assertEqual((n['elapsed'], n['remaining']), (1800, 5400))
+        self.assertEqual((n['layer'], n['total_layers']), (250, 1000))
+        self.assertEqual((n['chamber'], n['chamber_target']), (27.5, 30))
+        self.assertIsNone(n['nozzle'])
+        self.assertFalse(n['heaters'])
+        self.assertEqual(n['filename'], 'mini.goo')
+
+    def test_resin_status_codes(self):
+        for code, state in ((0, 'standby'), (2, 'printing'), (4, 'printing'), (6, 'paused'),
+                            (8, 'cancelled'), (9, 'complete'), (10, 'printing')):
+            self.assertEqual(normalize_resin_status({'PrintInfo': {'Status': code}})['state'], state, code)
+        self.assertEqual(normalize_resin_status({'PrintInfo': {'Status': 9, 'CurrentLayer': 3, 'TotalLayer': 9}})['progress'], 1.0)
+
+    def test_video_url_from_enable_video_response(self):
+        msg = {'Data': {'Cmd': 386, 'Data': {'Ack': 0, 'VideoUrl': 'rtsp://10.0.0.5:554/video'}}, 'Topic': 'sdcp/response/x'}
+        self.assertEqual(extract_video_url(msg), 'rtsp://10.0.0.5:554/video')
+        self.assertEqual(extract_video_url({'Data': {'Cmd': 386, 'Data': {'VideoUrl': '10.0.0.5:3031/video'}}}),
+                         'http://10.0.0.5:3031/video')
+        self.assertIsNone(extract_video_url({'Data': {'Cmd': 0, 'Data': {'Ack': 0}}}))
+
+
+class PrusaLinkNormalizeTests(unittest.TestCase):
+    def test_printing(self):
+        # Arrange
+        status = {'printer': {'state': 'PRINTING', 'temp_nozzle': 214.9, 'target_nozzle': 215, 'temp_bed': 59.5, 'target_bed': 60},
+                  'job': {'id': 7, 'progress': 42.0, 'time_remaining': 520, 'time_printing': 526}}
+        job = {'id': 7, 'file': {'name': 'BENCHY~1.BGC', 'display_name': 'benchy.bgcode', 'size': 1234}}
+
+        # Act
+        n = prusa_normalize(status, job)
+
+        # Assert
+        self.assertEqual(n['state'], 'printing')
+        self.assertAlmostEqual(n['progress'], 0.42)
+        self.assertEqual((n['elapsed'], n['remaining']), (526, 520))
+        self.assertEqual(n['filename'], 'benchy.bgcode')
+        self.assertEqual((n['nozzle'], n['nozzle_target'], n['bed'], n['bed_target']), (214.9, 215, 59.5, 60))
+        self.assertIsNone(n['layer'])
+
+    def test_state_mapping(self):
+        cases = {'IDLE': 'standby', 'READY': 'standby', 'BUSY': 'standby', 'PRINTING': 'printing', 'PAUSED': 'paused',
+                 'ATTENTION': 'paused', 'FINISHED': 'complete', 'STOPPED': 'cancelled', 'ERROR': 'error'}
+        for raw, expected in cases.items():
+            self.assertEqual(prusa_normalize({'printer': {'state': raw}})['state'], expected, raw)
+        self.assertEqual(prusa_normalize({'printer': {'state': 'FINISHED'}, 'job': {'progress': 99}})['progress'], 1.0)
+
+    def test_idle_clears_job(self):
+        n = prusa_normalize({'printer': {'state': 'IDLE', 'temp_nozzle': 25}, 'job': {'progress': 50}}, {'file': {'name': 'x'}})
+        self.assertEqual((n['filename'], n['progress'], n['elapsed']), ('', 0.0, None))
+
+
 # ============================================================
 # FACADE + CONFIG
 # ============================================================
@@ -226,6 +291,15 @@ class FacadeTests(unittest.TestCase):
         self.assertEqual(set(res), {'print_stats', 'temperature_sensor chamber'})
         self.assertEqual(res['print_stats']['info'], {'current_layer': 3, 'total_layer': 9})
         self.assertEqual(res['temperature_sensor chamber']['temperature'], 40)
+
+    def test_resin_printers_have_no_hotend_or_bed(self):
+        n = facade.empty_state()
+        n.update(heaters=False, chamber=28)
+        objs = facade.moonraker_objects(n)
+        self.assertNotIn('extruder', objs)
+        self.assertNotIn('heater_bed', objs)
+        self.assertIn('temperature_sensor chamber', objs)
+        self.assertIn('extruder', facade.moonraker_objects(facade.empty_state()))
 
     def test_no_file_position_so_toolpath_uses_layers(self):
         objs = facade.moonraker_objects(facade.empty_state())
@@ -271,6 +345,15 @@ class ConfigTests(unittest.TestCase):
         self.assertNotIn('camera', view[0])
         self.assertIs(view[0]['websocket'], False)
         self.assertEqual(view[1]['ip'], 'voron.local', 'direct printers keep their address')
+
+    def test_prusalink_requires_password(self):
+        _, err = self.store.upsert({'type': 'prusalink', 'name': 'MINI', 'ip': '1.2.3.4'})
+        self.assertIn('PrusaLink password', err)
+        p, err = self.store.upsert({'type': 'prusalink', 'name': 'MINI', 'ip': '1.2.3.4', 'accessCode': 'pw'})
+        self.assertIsNone(err)
+        view = overlay_view(self.store.printers(), 'localhost:8000')['printers'][0]
+        self.assertNotIn('accessCode', view)
+        self.assertIs(view['websocket'], False)
 
     def test_new_printer_with_same_name_gets_its_own_id(self):
         self.store.upsert({'name': 'Voron', 'ip': 'a'})
@@ -380,6 +463,81 @@ class BambuIntegrationTests(unittest.TestCase):
         self.assertEqual(frames[0], ('status', 200))
         self.assertGreaterEqual(frames.count('jpeg'), 3)
         ad.stop()
+
+
+class PrusaLinkIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.fakes, self.adapters = [], []
+
+    def tearDown(self):
+        for ad in self.adapters:
+            ad.stop()
+        for f in self.fakes:
+            f.close()
+
+    def run_against(self, password='secretpass', **fake_kw):
+        fake = FakePrusaLink(sim=SimPrint(layers=10, duration=30), **fake_kw).start()
+        self.fakes.append(fake)
+        ad = PrusaLinkAdapter({'id': 'mini', 'ip': '127.0.0.1:%d' % fake.port, 'accessCode': password})
+        self.adapters.append(ad)
+        ad.start()
+        return fake, ad
+
+    def test_status_with_digest_auth(self):
+        fake, ad = self.run_against()
+        self.assertTrue(wait_until(lambda: ad.snapshot()['filename'], 8), ad.snapshot()['message'])
+        n = ad.snapshot()
+        self.assertTrue(n['online'])
+        self.assertEqual(n['state'], 'printing')
+        self.assertEqual(n['filename'], 'benchy_0.2mm_PLA_MINI.bgcode')
+        self.assertEqual(n['nozzle'], 214.9)
+        q = facade.query_response(n, 'print_stats&extruder&heater_bed')['result']['status']
+        self.assertEqual(q['heater_bed']['target'], 60)
+
+    def test_api_key_firmware(self):
+        _, ad = self.run_against(api_key=True)
+        self.assertTrue(wait_until(lambda: ad.snapshot()['filename'], 8), ad.snapshot()['message'])
+
+    def test_wrong_password_is_reported(self):
+        _, ad = self.run_against(password='nope')
+        self.assertTrue(wait_until(lambda: 'password' in ad.snapshot()['message'], 8), ad.snapshot()['message'])
+        self.assertFalse(ad.snapshot()['online'])
+
+    def test_idle_printer(self):
+        _, ad = self.run_against(state='IDLE')
+        self.assertTrue(wait_until(lambda: ad.snapshot()['online'], 8), ad.snapshot()['message'])
+        self.assertEqual(ad.snapshot()['state'], 'standby')
+
+
+class ElegooResinIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.fake = FakeElegoo(resin=True, filename='part.goo', video_url='rtsp://127.0.0.1:554/video',
+                               sim=SimPrint(layers=100, duration=30)).start()
+        self.saved = {a: getattr(ElegooResinAdapter, a) for a in ('WS_PORT', 'DISCOVERY_PORT')}
+        ElegooResinAdapter.WS_PORT, ElegooResinAdapter.DISCOVERY_PORT = self.fake.ws_port, self.fake.udp_port
+        self.ad = ElegooResinAdapter({'id': 'saturn', 'ip': '127.0.0.1'})
+        self.ad.start()
+
+    def tearDown(self):
+        self.ad.stop()
+        self.fake.close()
+        for a, v in self.saved.items():
+            setattr(ElegooResinAdapter, a, v)
+
+    def test_status_and_rtsp_camera(self):
+        ad = self.ad
+        self.assertTrue(wait_until(lambda: ad.snapshot()['filename'] == 'part.goo', 8), ad.snapshot()['message'])
+        n = ad.snapshot()
+        self.assertEqual(n['state'], 'printing')
+        self.assertEqual(n['total_layers'], 100)
+        self.assertGreater(n['remaining'], 0)
+        self.assertLess(n['remaining'], 40, 'millisecond ticks converted to seconds')
+        self.assertGreater(n['progress'], 0)
+        self.assertNotIn('extruder', facade.moonraker_objects(n))
+        self.assertIsNone(ad.fetch_gcode('part.goo'))
+        ad.request(386, {'Enable': 1})
+        self.assertTrue(wait_until(lambda: ad.video_url, 5))
+        self.assertEqual(ad.video_url, 'rtsp://127.0.0.1:554/video')
 
 
 class ServerIntegrationTests(unittest.TestCase):
