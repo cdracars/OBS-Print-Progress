@@ -16,7 +16,8 @@ import time
 import ipaddress
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 
 BAMBU_MODELS = {
     'BL-P001': 'X1 Carbon', 'BL-P002': 'X1', 'C13': 'X1E', 'C11': 'P1P', 'C12': 'P1S',
@@ -152,9 +153,14 @@ def _hostname(ip):
         return ''
 
 
-def probe_host(ip):
-    """Identify a Moonraker or PrusaLink printer at `ip`, or None."""
-    if port_open(ip, 7125):
+def probe_host(ip, ports=None):
+    """Identify a Moonraker, Anycubic or PrusaLink printer at `ip`, or None.
+    `ports` is the set of ports already known to be open (from the sweep);
+    without it each port is tried here."""
+    def is_open(port):
+        return port in ports if ports is not None else port_open(ip, port)
+
+    if is_open(7125):
         try:
             with urllib.request.urlopen('http://%s:7125/server/info' % ip, timeout=2) as r:
                 if 'result' in json.loads(r.read().decode('utf-8')):
@@ -169,10 +175,10 @@ def probe_host(ip):
                     return {'type': 'klipper', 'ip': ip, 'name': name}
         except Exception:
             pass
-    if port_open(ip, 18910):
+    if is_open(18910):
         # Anycubic: the LAN-mode discovery document answers even in cloud mode.
         try:
-            with urllib.request.urlopen('http://%s:18910/info' % ip, timeout=2) as r:
+            with urllib.request.urlopen('http://%s:18910/info' % ip, timeout=3) as r:
                 info = json.loads(r.read().decode('utf-8'))
             if isinstance(info, dict) and ('modelId' in info or 'ctrlType' in info):
                 return {'type': 'anycubic', 'ip': ip, 'name': info.get('modelName') or 'Anycubic printer',
@@ -180,7 +186,7 @@ def probe_host(ip):
                         'supported': False}
         except Exception:
             pass
-    if port_open(ip, 80):
+    if is_open(80):
         try:
             urllib.request.urlopen('http://%s/api/version' % ip, timeout=2).close()
         except urllib.error.HTTPError as err:
@@ -191,23 +197,94 @@ def probe_host(ip):
     return None
 
 
-def scan_subnet(results, timeout=6.0):
+SWEEP_PORTS = (7125, 18910, 80)
+SOCKETS_PER_BATCH = 200   # stays under select()'s 512-socket limit on Windows
+
+
+def _connect_batch(targets, timeout, opened, refused):
+    """Start non-blocking connects to every (ip, port) and wait up to
+    `timeout` for them together. Fills `opened` and `refused`."""
+    import select
+    pending = {}
+    for t in targets:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setblocking(False)
+        try:
+            s.connect_ex(t)
+        except OSError:
+            s.close()
+            continue
+        pending[s] = t
+    end = _deadline(timeout)
+    try:
+        while pending and _remaining(end) > 0:
+            socks = list(pending)
+            try:
+                _, writable, failed = select.select([], socks, socks, max(0.0, _remaining(end)))
+            except (OSError, ValueError):
+                break
+            for s in set(writable) | set(failed):
+                t = pending.pop(s, None)
+                if t is None:
+                    continue
+                err = s.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                (opened if err == 0 and s not in failed else refused).add(t)
+                s.close()
+    finally:
+        for s in pending:
+            s.close()
+
+
+def open_ports(hosts, ports=SWEEP_PORTS, passes=((1.0,), (2.0,))):
+    """{ip: {open ports}} for the given hosts.
+
+    All connection attempts run at once (no thread per host). Attempts that
+    get no answer at all are retried in a second, longer pass: on a busy
+    LAN (Windows especially) the first burst is spent resolving ARP, and a
+    printer that is really there can miss a short timeout."""
+    opened, refused = set(), set()
+    todo = [(ip, p) for ip in hosts for p in ports]
+    for (timeout,) in passes:
+        if not todo:
+            break
+        batches = [todo[i:i + SOCKETS_PER_BATCH] for i in range(0, len(todo), SOCKETS_PER_BATCH)]
+        threads = [threading.Thread(target=_connect_batch, args=(b, timeout, opened, refused), daemon=True)
+                   for b in batches]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout + 1)
+        todo = [t for t in todo if t not in opened and t not in refused]
+    found = {}
+    for ip, p in opened:
+        found.setdefault(ip, set()).add(p)
+    return found
+
+
+def scan_subnet(results, timeout=9.0):
     me = local_ipv4()
     if not me or not ipaddress.ip_address(me).is_private:
         return
     net = ipaddress.ip_network(me + '/24', strict=False)
     hosts = [str(h) for h in net.hosts() if str(h) != me]
     end = _deadline(timeout)
+    live = open_ports(hosts)
     hits = []
-    with ThreadPoolExecutor(max_workers=64) as pool:
-        for ip, found in zip(hosts, pool.map(probe_host, hosts)):
+    pool = ThreadPoolExecutor(max_workers=32)
+    try:
+        futures = {pool.submit(probe_host, ip, ports): ip for ip, ports in live.items()}
+        for fut in as_completed(futures, timeout=max(0.1, _remaining(end))):
+            found = fut.result()
             if found:
+                # Publish right away, keyed by the numeric IP (the key other
+                # probes use), so hits survive even if discover() stops waiting.
+                results[(found['type'], futures[fut])] = found
                 hits.append(found)
-            if _remaining(end) <= 0:
-                break
-    name_results(hits)
-    for found in hits:
-        results[(found['type'], found['ip'])] = found
+    except FuturesTimeout:
+        pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    name_results(hits)  # renames the published dicts in place
 
 
 def name_results(hits, timeout=1.5):
@@ -252,8 +329,9 @@ def discover(seconds=5.0):
     ]
     for j in jobs:
         j.start()
+    end = _deadline(max(seconds, 9.0) + 3)
     for j in jobs:
-        j.join(timeout=seconds + 6)
+        j.join(max(0.0, _remaining(end)))
     return sorted(dict(results).values(), key=lambda r: (r['type'], r['ip']))
 
 
