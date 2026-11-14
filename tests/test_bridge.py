@@ -9,6 +9,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import threading
@@ -638,6 +639,90 @@ class DiscoveryTests(unittest.TestCase):
         self.assertLess(elapsed, 2)
         self.assertEqual(hits[0], {'type': 'klipper', 'ip': 'hoss.lan', 'name': 'hoss'})
         self.assertEqual(hits[1], {'type': 'klipper', 'ip': '10.0.0.2', 'name': 'sam'}, 'falls back to the IP')
+
+    def test_subnet_hits_keyed_by_numeric_ip(self):
+        # Same key as probe_moonraker(), so a printer found both ways is listed once.
+        saved = (discovery.local_ipv4, discovery.probe_host, discovery._hostname, discovery.open_ports)
+        discovery.local_ipv4 = lambda: '10.0.0.50'
+        discovery.open_ports = lambda hosts: {'10.0.0.7': {7125}, '10.0.0.9': {80}}
+        discovery.probe_host = lambda ip, ports=None: {'type': 'klipper', 'ip': ip, 'name': ip} if ip == '10.0.0.7' else None
+        discovery._hostname = lambda ip: 'hoss.lan'
+        results = {('klipper', '10.0.0.7'): {'type': 'klipper', 'ip': 'hoss.local', 'name': 'hoss'}}
+        try:
+            discovery.scan_subnet(results)
+        finally:
+            discovery.local_ipv4, discovery.probe_host, discovery._hostname, discovery.open_ports = saved
+        self.assertEqual(list(results), [('klipper', '10.0.0.7')])
+        self.assertEqual(results[('klipper', '10.0.0.7')]['ip'], 'hoss.lan')
+
+    def test_open_ports_finds_listeners_and_skips_closed(self):
+        srv = socket.socket()
+        srv.bind(('127.0.0.1', 0))
+        srv.listen(8)
+        port = srv.getsockname()[1]
+        closed = socket.socket()
+        closed.bind(('127.0.0.1', 0))
+        closed_port = closed.getsockname()[1]
+        closed.close()
+        try:
+            t0 = time.time()
+            found = discovery.open_ports(['127.0.0.1'], ports=(port, closed_port))
+            elapsed = time.time() - t0
+        finally:
+            srv.close()
+        self.assertEqual(found, {'127.0.0.1': {port}})
+        self.assertLess(elapsed, 1, 'refused ports must not wait for the timeout')
+
+    def test_open_ports_retries_unanswered_attempts(self):
+        # First burst: .245 doesn't answer in time (ARP still resolving).
+        calls = []
+        real = discovery._connect_batch
+
+        def fake(targets, timeout, opened, refused):
+            calls.append(sorted(targets))
+            for t in targets:
+                if t[0] == '10.0.0.5':
+                    opened.add(t)
+                elif t[0] == '10.0.0.245' and len(calls) > 1:
+                    opened.add(t)
+                elif t[0] == '10.0.0.9':
+                    refused.add(t)
+        discovery._connect_batch = fake
+        try:
+            found = discovery.open_ports(['10.0.0.5', '10.0.0.9', '10.0.0.245'], ports=(80,))
+        finally:
+            discovery._connect_batch = real
+        self.assertEqual(found, {'10.0.0.5': {80}, '10.0.0.245': {80}})
+        self.assertEqual(calls[1], [('10.0.0.245', 80)], 'only silent attempts are retried')
+
+    def test_open_ports_respects_socket_budget(self):
+        # macOS defaults to 256 open files; never open more sweep sockets than allowed.
+        live, peak, lock = [0], [0], threading.Lock()
+        real_batch, real_budget = discovery._connect_batch, discovery._socket_budget
+
+        def fake(targets, timeout, opened, refused):
+            with lock:
+                live[0] += len(targets)
+                peak[0] = max(peak[0], live[0])
+            time.sleep(0.05)
+            for t in targets:
+                refused.add(t)
+            with lock:
+                live[0] -= len(targets)
+        discovery._connect_batch, discovery._socket_budget = fake, lambda: 96
+        try:
+            discovery.open_ports(['10.0.0.%d' % i for i in range(1, 255)])
+        finally:
+            discovery._connect_batch, discovery._socket_budget = real_batch, real_budget
+        self.assertLessEqual(peak[0], 96)
+
+    def test_probe_host_uses_swept_ports(self):
+        real = discovery.port_open
+        discovery.port_open = lambda *a, **k: self.fail('should not re-check ports')
+        try:
+            self.assertIsNone(discovery.probe_host('127.0.0.1', ports=set()))
+        finally:
+            discovery.port_open = real
 
     def test_mark_known_matches_hostname_or_ip(self):
         found = [{'ip': '127.0.0.1', 'type': 'klipper'}, {'ip': 'LOCALHOST', 'type': 'klipper'},
