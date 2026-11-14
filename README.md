@@ -15,7 +15,7 @@ Works with **Klipper/Moonraker** printers (Voron, Sovol, RatRig, Creality with M
    - macOS/Linux: run `./linux-mac-server-start.sh`
 
    A setup page opens in your browser at `http://localhost:8000`. Keep the window open while you stream.
-4. **Add your printer** on the setup page. Pick the type, click **Search my network** (or type the IP), then click **Test connection** and **Save**.
+4. **Add your printer** on the setup page. It searches your network when it opens: click **Add** (or **Add all**) next to what it finds. Otherwise click **Add printer**, pick the type, type the IP, then **Test connection** and **Save**.
 5. **Add it to OBS.** Click **Copy** next to an overlay, then in OBS add a **Browser** source, paste the URL, and set 1920×1080.
 
 No config files to edit and no Moonraker CORS changes: the included server connects to the printer for OBS.

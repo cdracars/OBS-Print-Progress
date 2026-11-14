@@ -31,7 +31,7 @@ from urllib.parse import urlsplit, unquote
 from bridge.base import wait_until
 from bridge.bambu import BambuAdapter
 from bridge.config import ConfigStore, masked, overlay_view
-from bridge.discovery import discover
+from bridge.discovery import discover, mark_known
 from bridge.elegoo import ElegooAdapter, ElegooResinAdapter
 from bridge.httputil import send_json, send_error_json, send_bytes, CLIENT_GONE
 from bridge.moonraker import MoonrakerAdapter, SnapmakerU1Adapter
@@ -209,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
             return send_json(self, {'printers': self.hub.summaries()})
 
         if route == 'discover' and self.command == 'POST':
-            return send_json(self, {'found': discover(5.0)})
+            return send_json(self, {'found': mark_known(discover(5.0), self.store.printers())})
 
         if route == 'test' and self.command == 'POST':
             return self.test_connection(self.read_json())

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prusa printers with PrusaLink** (`prusalink`, MINI / MK4 / XL / CORE One, firmware 5.1+): status polled from `/api/v1/status` with digest auth (user `maker`) or an API key. Status overlay only; PrusaLink reports no layer or file position for the Live Toolpath
 - Setup page entries for both, and fake printers plus tests for each
 - Status overlay collapses into a compact card when there's no camera picture (no camera URL, the stream fails, or its frames are blank), and hides the empty thumbnail box when the file has no thumbnail. It expands again when the camera comes back
+- **Automatic network search on the setup page**: runs when the page opens and lists printers not added yet, with one-click **Add** / **Add all** (Bambu Lab and Prusa open the form for their access code / password). Discovery now also sweeps the local /24 for Moonraker (port 7125) and PrusaLink printers, and spots Anycubic printers (port 18910), which are listed as not supported yet
 - `tools/anycubic_probe.py`: read-only probe for Anycubic printers in LAN mode (handshake, MQTT, message dump) to build Photon P1 support from real data; `bridge/aes.py` pure-Python AES-128-CBC for its handshake
 
 - **Bambu Lab, Elegoo Centauri Carbon and Snapmaker U1 support** via the new `server.py` bridge (Python standard library only)

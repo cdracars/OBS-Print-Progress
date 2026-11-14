@@ -3,14 +3,20 @@
 - Bambu Lab printers announce themselves with SSDP-style NOTIFY broadcasts
   on UDP port 2021 every few seconds.
 - Elegoo SDCP printers answer a "M99999" UDP broadcast on port 3000.
-- Moonraker printers are probed on a short list of common hostnames.
+- Moonraker printers are probed on a short list of common hostnames, and
+  the local /24 subnet is swept for Moonraker (port 7125) and PrusaLink
+  (port 80, answers /api/version with a "Printer API" digest challenge),
+  and Anycubic printers are spotted by their port-18910 /info document.
 """
 
 import json
 import socket
 import threading
 import time
+import ipaddress
+import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 BAMBU_MODELS = {
     'BL-P001': 'X1 Carbon', 'BL-P002': 'X1', 'C13': 'X1E', 'C11': 'P1P', 'C12': 'P1S',
@@ -119,6 +125,83 @@ def probe_moonraker(hosts, results):
         t.join(timeout=5)
 
 
+def local_ipv4():
+    """This computer's LAN address (no packets are sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('192.0.2.1', 9))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def port_open(ip, port, timeout=0.6):
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _hostname(ip):
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except OSError:
+        return ''
+
+
+def probe_host(ip):
+    """Identify a Moonraker or PrusaLink printer at `ip`, or None."""
+    if port_open(ip, 7125):
+        try:
+            with urllib.request.urlopen('http://%s:7125/server/info' % ip, timeout=2) as r:
+                if 'result' in json.loads(r.read().decode('utf-8')):
+                    host = _hostname(ip)
+                    name = host.split('.')[0] if host else ip
+                    # Prefer port 80 (Mainsail/Fluidd) when it's there; server.py tries both.
+                    return {'type': 'klipper', 'ip': host or ip, 'name': name}
+        except Exception:
+            pass
+    if port_open(ip, 18910):
+        # Anycubic: the LAN-mode discovery document answers even in cloud mode.
+        try:
+            with urllib.request.urlopen('http://%s:18910/info' % ip, timeout=2) as r:
+                info = json.loads(r.read().decode('utf-8'))
+            if isinstance(info, dict) and ('modelId' in info or 'ctrlType' in info):
+                return {'type': 'anycubic', 'ip': ip, 'name': info.get('modelName') or 'Anycubic printer',
+                        'model': info.get('modelName') or '', 'lanMode': info.get('ctrlType') == 'lan',
+                        'supported': False}
+        except Exception:
+            pass
+    if port_open(ip, 80):
+        try:
+            urllib.request.urlopen('http://%s/api/version' % ip, timeout=2).close()
+        except urllib.error.HTTPError as err:
+            if err.code == 401 and 'printer api' in (err.headers.get('WWW-Authenticate') or '').lower():
+                host = _hostname(ip)
+                return {'type': 'prusalink', 'ip': ip, 'name': (host.split('.')[0] if host else '') or 'Prusa printer'}
+        except Exception:
+            pass
+    return None
+
+
+def scan_subnet(results, timeout=6.0):
+    me = local_ipv4()
+    if not me or not ipaddress.ip_address(me).is_private:
+        return
+    net = ipaddress.ip_network(me + '/24', strict=False)
+    hosts = [str(h) for h in net.hosts() if str(h) != me]
+    end = _deadline(timeout)
+    with ThreadPoolExecutor(max_workers=64) as pool:
+        for ip, found in zip(hosts, pool.map(probe_host, hosts)):
+            if found:
+                results[(found['type'], ip)] = found
+            if _remaining(end) <= 0:
+                break
+
+
 COMMON_HOSTS = ('mainsailos.local', 'fluiddpi.local', 'voron.local', 'klipper.local', 'printer.local',
                 'snapmaker.local', 'u1.local')
 
@@ -129,12 +212,35 @@ def discover(seconds=5.0):
         threading.Thread(target=listen_bambu, args=(seconds, results), daemon=True),
         threading.Thread(target=probe_elegoo, args=(min(seconds, 3.0), results), daemon=True),
         threading.Thread(target=probe_moonraker, args=(COMMON_HOSTS, results), daemon=True),
+        threading.Thread(target=scan_subnet, args=(results,), daemon=True),
     ]
     for j in jobs:
         j.start()
     for j in jobs:
-        j.join(timeout=seconds + 3)
-    return sorted(results.values(), key=lambda r: (r['type'], r['ip']))
+        j.join(timeout=seconds + 6)
+    return sorted(dict(results).values(), key=lambda r: (r['type'], r['ip']))
+
+
+def _resolve(host):
+    host = (host or '').split('://')[-1].split('/')[0]
+    host = host.rsplit(':', 1)[0] if host.count(':') == 1 else host
+    try:
+        return socket.gethostbyname(host) if host else ''
+    except OSError:
+        return host
+
+
+def mark_known(found, saved):
+    """Flag discovered printers that are already configured (same address,
+    by name or by resolved IP), so the setup page only offers new ones."""
+    known = set()
+    for p in saved:
+        ip = str(p.get('ip') or '')
+        known.add(ip.lower())
+        known.add(_resolve(ip))
+    for f in found:
+        f['known'] = f['ip'].lower() in known or _resolve(f['ip']) in known
+    return found
 
 
 def _deadline(seconds):

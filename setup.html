@@ -25,6 +25,18 @@
             <p class="empty hidden" id="emptyState">No printers yet. Click <b>Add printer</b> to get started, or try the <a href="toolpath.html?demo=1" target="_blank">3D demo</a>.</p>
         </section>
 
+        <section id="foundPanel" class="hidden">
+            <div class="section-head">
+                <h2>Found on your network</h2>
+                <span class="head-tools">
+                    <button class="btn ghost" id="rescanBtn">Search again</button>
+                    <button class="btn" id="addAllBtn">Add all</button>
+                </span>
+            </div>
+            <p class="hint" id="foundHint">Searching your network...</p>
+            <div id="foundList" class="found-list"></div>
+        </section>
+
         <section id="editor" class="panel hidden">
             <h2 id="editorTitle">Add a printer</h2>
 
@@ -52,7 +64,7 @@
                 </div>
                 <div class="discover">
                     <button type="button" class="btn ghost" id="discoverBtn">Search my network</button>
-                    <span class="hint" id="discoverHint">Finds Bambu Lab, Elegoo and common Klipper hostnames. Prusa printers need their IP entered by hand.</span>
+                    <span class="hint" id="discoverHint">Finds Bambu Lab, Elegoo, Klipper, Prusa and Anycubic printers on your network.</span>
                 </div>
                 <div id="discoverResults" class="found"></div>
             </div>
