@@ -3,7 +3,7 @@
     'use strict';
 
     const $ = id => document.getElementById(id);
-    const TYPE_LABELS = { klipper: 'Klipper', bambu: 'Bambu Lab', 'elegoo-cc': 'Centauri Carbon', 'elegoo-resin': 'Elegoo resin', prusalink: 'Prusa', 'snapmaker-u1': 'Snapmaker U1' };
+    const TYPE_LABELS = { klipper: 'Klipper', bambu: 'Bambu Lab', 'elegoo-cc': 'Centauri Carbon', 'elegoo-resin': 'Elegoo resin', prusalink: 'Prusa', 'snapmaker-u1': 'Snapmaker U1', anycubic: 'Anycubic' };
     const RTSP_MODELS = /X1|P2S|H2/i;
 
     const HELP = {
@@ -278,6 +278,92 @@
         (f.type === 'bambu' ? form.accessCode : form.name).focus();
     }
 
+    // ---------------- automatic network search ----------------
+
+    // Printers that need nothing but an address can be added in one click;
+    // Bambu Lab printers still need their access code, so they open the form.
+    const NEEDS_FORM = new Set(['bambu', 'prusalink']);
+    let found = [];
+    let scanning = false;
+
+    function foundPrinterData(f) {
+        const data = { type: f.type, name: f.name || TYPE_LABELS[f.type] || 'Printer', ip: f.ip };
+        if (f.model) data.model = f.model;
+        if (f.mainboardId) data.mainboardId = f.mainboardId;
+        if (f.type === 'elegoo-cc' || f.type === 'elegoo-resin') data.showChamber = true;
+        return data;
+    }
+
+    function renderFound() {
+        const fresh = found.filter(f => !f.known && !printers.some(p => p.ip === f.ip));
+        const quick = fresh.filter(f => !NEEDS_FORM.has(f.type) && f.supported !== false);
+        $('foundPanel').classList.toggle('hidden', !scanning && !fresh.length);
+        $('foundHint').textContent = scanning ? 'Searching your network (about 10 seconds)...'
+            : `${fresh.length} printer${fresh.length === 1 ? '' : 's'} not added yet.`;
+        $('addAllBtn').classList.toggle('hidden', quick.length < 1);
+        $('addAllBtn').textContent = quick.length > 1 ? `Add all ${quick.length}` : 'Add it';
+        $('rescanBtn').disabled = scanning;
+        const list = $('foundList');
+        list.innerHTML = '';
+        fresh.forEach(f => {
+            const row = document.createElement('div');
+            row.className = 'found-row';
+            const needsForm = NEEDS_FORM.has(f.type);
+            const meta = `${esc(TYPE_LABELS[f.type] || f.type)}${f.model && f.model !== f.name ? ' ' + esc(f.model) : ''} · ${esc(f.ip)}`;
+            if (f.supported === false) {
+                // Seen on the network, but there's no adapter for it yet (Anycubic).
+                const why = f.type === 'anycubic'
+                    ? (f.lanMode ? 'LAN mode is on. Support is in progress: run tools/anycubic_probe.py to help build it.'
+                                 : 'Not supported yet. Turn on LAN mode on the printer for local monitoring.')
+                    : 'Not supported yet.';
+                row.innerHTML = `<span class="found-name">${esc(f.name)}</span><span class="found-meta">${meta} · ${esc(why)}</span>`;
+                list.appendChild(row);
+                return;
+            }
+            row.innerHTML = `<span class="found-name">${esc(f.name)}</span>
+                <span class="found-meta">${meta}</span>
+                <button class="btn small${needsForm ? ' ghost' : ''}">${needsForm ? 'Set up' : 'Add'}</button>`;
+            row.querySelector('button').onclick = () => needsForm ? setUpFound(f) : addFound([f]);
+            list.appendChild(row);
+        });
+    }
+
+    async function scanNetwork() {
+        if (scanning) return;
+        scanning = true;
+        renderFound();
+        try {
+            found = (await api('discover', { method: 'POST' })).found || [];
+        } catch (err) {
+            found = [];
+            toast(`Network search failed: ${err.message}`);
+        } finally {
+            scanning = false;
+            renderFound();
+        }
+    }
+
+    async function addFound(list) {
+        let added = 0;
+        for (const f of list) {
+            try {
+                await api('printers', { method: 'POST', body: foundPrinterData(f) });
+                f.known = true;
+                added++;
+            } catch (err) {
+                toast(`${f.name}: ${err.message}`);
+            }
+        }
+        if (added) toast(`Added ${added} printer${added === 1 ? '' : 's'}. Copy a link below into OBS.`);
+        await refresh();
+        renderFound();
+    }
+
+    function setUpFound(f) {
+        openEditor(null);
+        useDiscovered(f);
+    }
+
     // ---------------- wiring ----------------
 
     document.querySelectorAll('.type').forEach(b => { b.onclick = () => setType(b.dataset.type); });
@@ -288,6 +374,13 @@
     $('form').addEventListener('submit', save);
 
     api('info').then(i => { $('version').textContent = `v${i.version}`; }).catch(() => {});
-    refresh().then(() => { if (!printers.length) openEditor(null); });
+    $('rescanBtn').onclick = scanNetwork;
+    $('addAllBtn').onclick = () => addFound(found.filter(f => !f.known && f.supported !== false && !NEEDS_FORM.has(f.type) && !printers.some(p => p.ip === f.ip)));
+    refresh().then(() => {
+        // Search the network right away so new printers show up without a click.
+        scanNetwork().then(() => {
+            if (!printers.length && !found.some(f => !f.known)) openEditor(null);
+        });
+    });
     setInterval(refresh, 3000);
 })();

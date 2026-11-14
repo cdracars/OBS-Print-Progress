@@ -27,6 +27,7 @@ from bridge import aes, facade, mqtt  # noqa: E402
 from bridge.bambu import BambuAdapter, normalize_report, job_filename, extract_plate_gcode, with_thumbnail, plate_from  # noqa: E402
 from bridge.base import deep_merge, wait_until  # noqa: E402
 from bridge.config import ConfigStore, overlay_view, masked, MASK  # noqa: E402
+from bridge import discovery  # noqa: E402
 from bridge.discovery import bambu_from_ssdp  # noqa: E402
 from bridge.elegoo import ElegooAdapter, ElegooResinAdapter, normalize_status, normalize_resin_status, extract_status, extract_video_url  # noqa: E402
 from bridge.prusa import PrusaLinkAdapter, normalize_status as prusa_normalize  # noqa: E402
@@ -553,6 +554,79 @@ class ElegooResinIntegrationTests(unittest.TestCase):
         ad.request(386, {'Enable': 1})
         self.assertTrue(wait_until(lambda: ad.video_url, 5))
         self.assertEqual(ad.video_url, 'rtsp://127.0.0.1:554/video')
+
+
+class DiscoveryTests(unittest.TestCase):
+    def test_probe_identifies_moonraker_and_prusalink(self):
+        # Arrange: a fake Moonraker on 7125 and a fake PrusaLink on a free port
+        class Moonraker(server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = b'{"result": {"klippy_state": "ready"}}'
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(body)
+
+        prusa = FakePrusaLink().start()
+        try:
+            moon = ThreadingHTTPServer(('127.0.0.1', 0), Moonraker)
+        except OSError:
+            self.skipTest('no free port')
+        threading.Thread(target=moon.serve_forever, daemon=True).start()
+        ports = {7125: moon.server_address[1], 80: prusa.port}
+        real_open, real_urlopen = discovery.port_open, discovery.urllib.request.urlopen
+
+        def fake_open(ip, port, timeout=0.6):
+            return real_open(ip, ports.get(port, port), timeout)
+
+        def fake_urlopen(url, timeout=None):
+            for want, got in ((':7125/', ':%d/' % ports[7125]), ('127.0.0.1/', '127.0.0.1:%d/' % ports[80])):
+                url = url.replace(want, got, 1) if want in url else url
+            return real_urlopen(url, timeout=timeout)
+
+        discovery.port_open, discovery.urllib.request.urlopen = fake_open, fake_urlopen
+        try:
+            # Act + Assert
+            self.assertEqual(discovery.probe_host('127.0.0.1')['type'], 'klipper')
+            moon.shutdown()
+            moon.server_close()
+            self.assertEqual(discovery.probe_host('127.0.0.1')['type'], 'prusalink')
+        finally:
+            discovery.port_open, discovery.urllib.request.urlopen = real_open, real_urlopen
+            prusa.close()
+
+    def test_probe_spots_anycubic_info_document(self):
+        class Info(server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = json.dumps({'token': 'x' * 32, 'modelId': 30001, 'ctrlType': 'cloud', 'modelName': 'Photon P1'}).encode()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(body)
+
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), Info)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        port = srv.server_address[1]
+        real_open, real_urlopen = discovery.port_open, discovery.urllib.request.urlopen
+        discovery.port_open = lambda ip, p, timeout=0.6: p == 18910
+        discovery.urllib.request.urlopen = lambda url, timeout=None: real_urlopen(url.replace(':18910/', ':%d/' % port), timeout=timeout)
+        try:
+            f = discovery.probe_host('127.0.0.1')
+        finally:
+            discovery.port_open, discovery.urllib.request.urlopen = real_open, real_urlopen
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual((f['type'], f['name'], f['lanMode'], f['supported']), ('anycubic', 'Photon P1', False, False))
+
+    def test_mark_known_matches_hostname_or_ip(self):
+        found = [{'ip': '127.0.0.1', 'type': 'klipper'}, {'ip': 'LOCALHOST', 'type': 'klipper'},
+                 {'ip': '10.255.255.254', 'type': 'elegoo-resin'}]
+        discovery.mark_known(found, [{'ip': 'localhost:7125'}])
+        self.assertEqual([f['known'] for f in found], [True, True, False])
 
 
 class ServerIntegrationTests(unittest.TestCase):

@@ -190,3 +190,20 @@ label.check { display: flex; align-items: center; gap: 8px; color: var(--text); 
     .link-row .label { width: 100%; }
     .card-tools { margin-left: 0; }
 }
+
+/* Printers found by the automatic network search */
+#foundPanel { margin-top: 18px; }
+.head-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.found-list { display: grid; gap: 8px; margin-top: 8px; }
+.found-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+}
+.found-row .found-name { font-weight: 600; }
+.found-row .found-meta { color: var(--muted); font-size: 13px; flex: 1; min-width: 160px; }
