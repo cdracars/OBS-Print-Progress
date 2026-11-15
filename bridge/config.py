@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 
-TYPES = ('klipper', 'snapmaker-u1', 'bambu', 'elegoo-cc', 'elegoo-resin', 'prusalink')
+TYPES = ('klipper', 'snapmaker-u1', 'bambu', 'elegoo-cc', 'elegoo-resin', 'prusalink', 'anycubic-p1')
 FIELDS = ('id', 'name', 'type', 'ip', 'serial', 'accessCode', 'model', 'mainboardId', 'camera',
           'flipHorizontal', 'flipVertical', 'showChamber', 'updateInterval', 'debug', 'direct')
 SECRET_FIELDS = ('accessCode',)
@@ -76,6 +76,9 @@ class ConfigStore:
 
         printers = self.printers()
         existing = next((p for p in printers if p['id'] == original_id), None) if original_id else None
+        if existing:
+            # Display-name edits must not break saved OBS URLs or CMDB identity.
+            clean['id'] = existing['id']
         if not existing:
             # New printer: pick a free id (two "Voron"s become voron, voron-2)
             base, n = clean['id'], 2
@@ -126,7 +129,7 @@ def overlay_view(printers, host):
         v = {k: v for k, v in p.items() if k not in PRIVATE_FIELDS}
         if not p.get('direct'):
             v['ip'] = '%s/p/%s' % (host, p['id'])
-            if p.get('type') in ('bambu', 'elegoo-cc', 'elegoo-resin', 'prusalink'):
+            if p.get('type') in ('bambu', 'elegoo-cc', 'elegoo-resin', 'prusalink', 'anycubic-p1'):
                 v.pop('camera', None)  # always use the bridge's camera stream
                 v['websocket'] = False  # translated printers are polled over HTTP
         out.append(v)

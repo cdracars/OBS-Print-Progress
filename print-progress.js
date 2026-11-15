@@ -35,6 +35,7 @@
     }
 
     const body = document.body || document.documentElement;
+    let ACTIVE_PRINTER_ID = '';
 
     // ============================================================
     // CONFIGURATION VARIABLES
@@ -468,6 +469,7 @@
             return;
         }
 
+        ACTIVE_PRINTER_ID = cfg.id || '';
         applyConfig(cfg);
         setPrinterName();
         setupCamera();
@@ -512,6 +514,7 @@
     }
 
     async function extractThumbnailFromGcode(filename) {
+        const ccFallback = () => window.CentauriThumbnail?.getThumbnail(ACTIVE_PRINTER_ID, filename, PRINTER_IP) || null;
         try {
             const path = normalizeFilename(filename);
             if (!path) return null;
@@ -522,12 +525,12 @@
             // Large thumbnails (300x300 and up) easily pass 100 KB of base64,
             // so read the first 1 MB; thumbnails always sit at the top.
             const resp = await fetch(url, { headers: { Range: "bytes=0-1048575" } });
-            if (!resp.ok) return null;
+            if (!resp.ok) return ccFallback();
 
-            return pickThumbnail(await resp.text());
+            return pickThumbnail(await resp.text()) || ccFallback();
         } catch (err) {
             console.error("extractThumbnailFromGcode error:", err);
-            return null;
+            return ccFallback();
         }
     }
 
@@ -679,8 +682,9 @@
                         if (previewContainer) previewContainer.classList.remove('loaded', 'empty');
 
                         extractThumbnailFromGcode(normalized).then(thumb => {
+                            if (thumbEl.dataset.loadedFor !== normalized) return;
                             if (thumb) {
-                                thumbEl.src = `data:${thumb.mime};base64,${thumb.b64}`;
+                                thumbEl.src = thumb.url || `data:${thumb.mime};base64,${thumb.b64}`;
                                 thumbEl.style.display = "block";
                                 if (previewContainer) previewContainer.classList.add('loaded');
 

@@ -253,6 +253,8 @@ class BambuAdapter(Adapter):
         with self.lock:
             deep_merge(self.report, delta)
             self.state.update(normalize_report(self.report, self.model))
+            self._track_job()
+            self.observed_at = time.time()
 
     # ---------------- G-code via FTPS ----------------
 

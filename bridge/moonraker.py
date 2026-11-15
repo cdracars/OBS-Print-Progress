@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit, urljoin
 
-from .base import Adapter, describe_error
+from .base import Adapter, describe_error, CommandRejected
 from .httputil import send_error_json, CLIENT_GONE
 
 HOP_HEADERS = {'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-connection', 'te', 'trailer'}
@@ -65,11 +65,34 @@ class MoonrakerAdapter(Adapter):
             self.update(
                 online=True, message='', state=ps.get('state') or 'standby', filename=ps.get('filename') or '',
                 progress=st.get('virtual_sdcard', {}).get('progress') or 0,
+                elapsed=ps.get('print_duration'), nozzle_target=st.get('extruder', {}).get('target'),
+                bed_target=st.get('heater_bed', {}).get('target'),
                 layer=(ps.get('info') or {}).get('current_layer'), total_layers=(ps.get('info') or {}).get('total_layer'),
                 nozzle=st.get('extruder', {}).get('temperature'), bed=st.get('heater_bed', {}).get('temperature'),
             )
             if self.stop_event.wait(3):
                 return
+
+    def refresh_for_command(self):
+        base = self.base or self.resolve_base()
+        with urllib.request.urlopen(base + '/printer/objects/query?print_stats&virtual_sdcard&extruder&heater_bed', timeout=5) as response:
+            st = json.load(response)['result']['status']
+        ps = st.get('print_stats', {})
+        self.update(online=True, state=ps.get('state', 'standby'), filename=ps.get('filename', ''),
+                    progress=st.get('virtual_sdcard', {}).get('progress'), elapsed=ps.get('print_duration'))
+
+    def perform_command(self, action):
+        operation = {'pause': 'pause', 'resume': 'resume', 'cancel': 'cancel'}[action]
+        base = self.base or self.resolve_base()
+        request = urllib.request.Request(base + '/printer/print/' + operation, data=b'', method='POST')
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                data = json.loads(response.read().decode() or '{}')
+            if data.get('error'):
+                raise CommandRejected('Moonraker rejected this command')
+        except urllib.error.HTTPError as err:
+            err.close()
+            raise CommandRejected('Moonraker rejected the action (HTTP %d)' % err.code)
 
     # ---------------- proxy ----------------
 

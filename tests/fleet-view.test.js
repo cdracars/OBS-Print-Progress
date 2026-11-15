@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict');
+const V = require('../fleet-view.js');
+const printer = {name:'Saturn',id:'saturn',type:'elegoo-resin',technology:'resin',location:'Workshop',lifecycle:'active',connection:{state:'online'},job:{state:'printing'}};
+assert.equal(V.matches(printer,'printing','resin','SATURN'),true);
+const stale = {...printer, connection:{state:'stale'}};
+assert.equal(V.state(stale),'Stale data');
+assert.equal(V.matches(stale,'printing','all',''),false);
+assert.equal(V.attention(stale),true);
+assert.deepEqual(V.totals([printer, stale]),{all:2,printing:1,attention:1,ready:0});
+assert.equal(V.duration(null),'Not reported');
+assert.equal(V.age(null),'No observation yet');
+assert.equal(V.state({...printer,lifecycle:'retired'}),'Retired');
+console.log('Fleet presentation: stale work excluded from active totals, resin search and unknown values passed.');

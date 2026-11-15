@@ -207,3 +207,9 @@ label.check { display: flex; align-items: center; gap: 8px; color: var(--text); 
 }
 .found-row .found-name { font-weight: 600; }
 .found-row .found-meta { color: var(--muted); font-size: 13px; flex: 1; min-width: 160px; }
+
+/* Links to the printer's existing browser dashboard */
+.dashboard-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.dashboard-nav a { display: inline-block; text-decoration: none; }
+.dashboard-check, .dashboard-help { font-size: 12px; color: var(--muted); }
+.dashboard-extras:not(:empty) { margin-top: 12px; }

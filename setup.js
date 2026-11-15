@@ -3,10 +3,11 @@
     'use strict';
 
     const $ = id => document.getElementById(id);
-    const TYPE_LABELS = { klipper: 'Klipper', bambu: 'Bambu Lab', 'elegoo-cc': 'Centauri Carbon', 'elegoo-resin': 'Elegoo resin', prusalink: 'Prusa', 'snapmaker-u1': 'Snapmaker U1', anycubic: 'Anycubic' };
+    const TYPE_LABELS = { klipper: 'Klipper', bambu: 'Bambu Lab', 'elegoo-cc': 'Centauri Carbon', 'elegoo-resin': 'Elegoo resin', prusalink: 'Prusa', 'snapmaker-u1': 'Snapmaker U1', anycubic: 'Anycubic', 'anycubic-p1': 'Photon P1 (experimental)' };
     const RTSP_MODELS = /X1|P2S|H2/i;
 
     const HELP = {
+        'anycubic-p1': 'Experimental resin support. Enable LAN mode on the printer. Photon P1 permits one MQTT client: close Photon Workshop before connecting. Use the dashboard handoff button before opening the slicer again. Camera conversion is not enabled.',
         klipper: 'Use the same address you open Mainsail or Fluidd with (for example <code>192.168.1.50</code> or <code>voron.local</code>). OBS connects through this server, so you don\'t need to change Moonraker\'s CORS settings.',
         'snapmaker-u1': 'Enter the IP address shown in the U1\'s network settings on its touchscreen. The U1 runs Klipper, so both overlays work, including the live 3D twin.',
         bambu: 'On the printer\'s screen:<ol>' +
@@ -46,8 +47,12 @@
 
     // ---------------- printer list ----------------
 
-    function overlayUrl(page, id) {
-        return `${location.origin}/${page}?printer=${encodeURIComponent(id)}`;
+    function overlayUrl(page, id, camera) {
+        const url = new URL(page, location.origin);
+        url.searchParams.set('printer', id);
+        // Honor an explicit camera URL without asking a printer bridge to enable video.
+        if (page === 'printer.html' && camera) url.searchParams.set('camera', camera);
+        return url.href;
     }
 
     function statusText(s) {
@@ -66,6 +71,7 @@
     function render() {
         const list = $('printerList');
         $('emptyState').classList.toggle('hidden', printers.length > 0);
+        $('dashboardExtras').innerHTML = window.PrinterDashboardLinks ? window.PrinterDashboardLinks.extraHtml(printers) : '';
         // Update in place so copy buttons/inputs don't flicker while polling.
         const seen = new Set();
         printers.forEach(p => {
@@ -77,7 +83,7 @@
                 card.dataset.id = p.id;
                 list.appendChild(card);
             }
-            const sig = JSON.stringify([p.name, p.type, p.model, p.ip]);
+            const sig = JSON.stringify([p.name, p.type, p.model, p.ip, p.camera]);
             if (card.dataset.sig !== sig) {
                 card.dataset.sig = sig;
                 card.innerHTML = cardHtml(p);
@@ -99,7 +105,7 @@
     }
 
     function cardHtml(p) {
-        const status = overlayUrl('printer.html', p.id);
+        const status = overlayUrl('printer.html', p.id, p.camera);
         const twin = overlayUrl('toolpath.html', p.id);
         const rtsp = p.type === 'bambu' && RTSP_MODELS.test(p.model || '')
             ? `<div class="note">This ${esc(p.model)} streams video over RTSPS, which a browser can't play. For the camera, add a <b>Media Source</b> in OBS, untick "Local File" and use <code>rtsps://bblp:&lt;access code&gt;@${esc(p.ip)}:322/streaming/live/1</code>. Then place the status overlay on top.</div>`
@@ -117,10 +123,11 @@
             </div>
             <div class="links">
                 <div class="link-row"><span class="label">Status overlay</span><input readonly value="${esc(status)}">
-                    <button class="btn small" data-copy="${esc(status)}">Copy</button><a class="btn small ghost" href="${esc(status)}" target="_blank">Preview</a></div>
+                    <button class="btn small" data-copy="${esc(status)}">Copy</button><a class="btn small ghost" href="${esc(status)}" target="_blank" rel="noopener noreferrer">Watch</a></div>
                 <div class="link-row"><span class="label">3D twin</span><input readonly value="${esc(twin)}">
                     <button class="btn small" data-copy="${esc(twin)}">Copy</button><a class="btn small ghost" href="${esc(twin)}" target="_blank">Preview</a></div>
             </div>
+            ${window.PrinterDashboardLinks ? window.PrinterDashboardLinks.html(p) : '<div class="muted">Controls: dashboard links unavailable.</div>'}
             ${rtsp}`;
     }
 
@@ -282,7 +289,7 @@
 
     // Printers that need nothing but an address can be added in one click;
     // Bambu Lab printers still need their access code, so they open the form.
-    const NEEDS_FORM = new Set(['bambu', 'prusalink']);
+    const NEEDS_FORM = new Set(['bambu', 'prusalink', 'anycubic-p1']);
     let found = [];
     let scanning = false;
 

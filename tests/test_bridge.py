@@ -379,11 +379,13 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(p['id'], 'voron-2')
         self.assertEqual([x['ip'] for x in self.store.printers()], ['a', 'b'], 'first printer not overwritten')
 
-    def test_renaming_into_existing_id_rejected(self):
+    def test_renaming_keeps_existing_obs_alias(self):
         self.store.upsert({'name': 'Voron', 'ip': 'a'})
         self.store.upsert({'name': 'Prusa', 'ip': 'b'})
-        _, err = self.store.upsert({'name': 'Voron', 'ip': 'b', 'originalId': 'prusa'})
-        self.assertIn('already', err)
+        printer, err = self.store.upsert({'name': 'Voron', 'ip': 'b', 'originalId': 'prusa'})
+        self.assertIsNone(err)
+        self.assertEqual(printer['id'], 'prusa')
+        self.assertEqual(printer['name'], 'Voron')
 
 
 # ============================================================

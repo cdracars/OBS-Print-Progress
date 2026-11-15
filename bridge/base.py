@@ -5,10 +5,15 @@ import errno
 import socket
 import threading
 import time
+import uuid
 from urllib.parse import unquote
 
 from . import facade
 from .httputil import send_json, send_bytes, send_error_json
+
+
+class CommandRejected(ValueError):
+    """A printer explicitly rejected an operation; not a transport uncertainty."""
 
 
 def deep_merge(target, delta):
@@ -34,6 +39,11 @@ class Adapter:
         self.stop_event = threading.Event()
         self.state = facade.empty_state()
         self.thread = None
+        self.observed_at = None
+        self._job_token = None
+        self._job_signature = None
+        self._last_job_state = None
+        self._last_elapsed = None
         self._gcode_cache = {}   # filename -> bytes (only the current file)
 
     # ---------------- lifecycle ----------------
@@ -67,15 +77,32 @@ class Adapter:
     def update(self, **fields):
         with self.lock:
             self.state.update(fields)
+            self._track_job()
+            if any(k in fields for k in ('state', 'filename', 'progress', 'nozzle', 'bed', 'chamber')):
+                self.observed_at = time.time()
 
     def set_offline(self, message):
         with self.lock:
             self.state['online'] = False
             self.state['message'] = message
 
+    def _track_job(self):
+        """Called with the state lock, on observations as well as reads."""
+        active = self.state.get('state') in ('printing', 'paused')
+        signature = (self.state.get('filename'), self.state.get('_job_id'))
+        elapsed = self.state.get('elapsed')
+        restarted = active and self._last_job_state not in ('printing', 'paused')
+        if active and (self._job_token is None or signature != self._job_signature or restarted or
+                       elapsed is not None and self._last_elapsed is not None and elapsed < self._last_elapsed - 10):
+            self._job_token = uuid.uuid4().hex
+        if active:
+            self._job_signature = signature
+        self._last_job_state, self._last_elapsed = self.state.get('state'), elapsed
+
     def snapshot(self):
         with self.lock:
-            return copy.deepcopy(self.state)
+            self._track_job()
+            return dict(copy.deepcopy(self.state), _observed_at=self.observed_at, _job_token=self._job_token)
 
     def summary(self):
         s = self.snapshot()

@@ -9,8 +9,8 @@
 <body>
     <header class="top">
         <div>
-            <h1>OBS Print Progress</h1>
-            <p class="sub">Add your printer, then paste a link into an OBS <b>Browser</b> source.</p>
+            <h1>Printer connections</h1><a href="dashboard.html">← Back to Print Desk</a>
+            <p class="sub">Watch your printers, open their dashboards, or copy a view into OBS.</p>
         </div>
         <span class="version" id="version"></span>
     </header>
@@ -22,6 +22,8 @@
                 <button class="btn" id="addBtn">+ Add printer</button>
             </div>
             <div id="printerList" class="cards"></div>
+            <div id="dashboardExtras" class="dashboard-extras"></div>
+            <p class="muted dashboard-help">Controls open each printer's existing browser dashboard in a new tab. Mainsail and Fluidd are browser interfaces; KlipperScreen is the interface on an attached display and is not provided here.</p>
             <p class="empty hidden" id="emptyState">No printers yet. Click <b>Add printer</b> to get started, or try the <a href="toolpath.html?demo=1" target="_blank">3D demo</a>.</p>
         </section>
 
@@ -58,6 +60,7 @@
                     <button type="button" class="type" data-type="prusalink">
                         <b>Prusa</b><span>MINI, MK4, XL, CORE One (PrusaLink)</span>
                     </button>
+                    <button type="button" class="type" data-type="anycubic-p1"><b>Anycubic Photon P1</b><span>Experimental resin LAN monitoring; one client at a time</span></button>
                     <button type="button" class="type" data-type="snapmaker-u1">
                         <b>Snapmaker U1</b><span>4-toolhead U1</span>
                     </button>
@@ -139,6 +142,8 @@
     </main>
 
     <div class="toast hidden" id="toast"></div>
+    <script src="dashboard-links.local.js"></script>
+    <script src="dashboard-links.js"></script>
     <script src="setup.js"></script>
 </body>
 </html>

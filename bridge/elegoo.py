@@ -25,7 +25,7 @@ import urllib.request
 import uuid
 from urllib.parse import quote
 
-from .base import Adapter, deep_merge, wait_until
+from .base import Adapter, deep_merge, wait_until, CommandRejected
 from .httputil import CLIENT_GONE, send_error_json
 from .websocket import WebSocket
 
@@ -181,16 +181,18 @@ class ElegooAdapter(Adapter):
         self.ws = None
         self.video_url = None
         self.send_lock = threading.Lock()
+        self.command_waiters = {}
+        self.ack_lock = threading.Lock()
 
-    def request(self, cmd, data=None):
+    def request(self, cmd, data=None, request_id=None):
         ws = self.ws
         if not ws:
-            return
+            raise ConnectionError('Elegoo connection is not available')
         mb = self.mainboard or ''
         msg = {
             'Id': '',
-            'Data': {'Cmd': cmd, 'Data': data or {}, 'RequestID': uuid.uuid4().hex,
-                     'MainboardID': mb, 'TimeStamp': int(time.time() * 1000), 'From': 1},
+            'Data': {'Cmd': cmd, 'Data': data or {}, 'RequestID': request_id or uuid.uuid4().hex,
+                     'MainboardID': mb, 'TimeStamp': int(time.time()), 'From': 1},
             'Topic': 'sdcp/request/%s' % mb,
         }
         with self.send_lock:
@@ -228,6 +230,15 @@ class ElegooAdapter(Adapter):
             ws.close()
 
     def on_message(self, msg):
+        response = msg.get('Data') or {}
+        request_id = response.get('RequestID')
+        with self.ack_lock:
+            waiter = self.command_waiters.get(request_id)
+            if waiter and response.get('Cmd') == waiter['cmd'] and response.get('MainboardID') == self.mainboard:
+                ack = (response.get('Data') or {}).get('Ack')
+                if ack is not None:
+                    waiter['ack'] = ack
+                    waiter['event'].set()
         status, mbid = extract_status(msg)
         if mbid and not self.mainboard:
             self.mainboard = mbid
@@ -235,12 +246,37 @@ class ElegooAdapter(Adapter):
             with self.lock:
                 deep_merge(self.raw, status)
                 self.state.update(self.normalize(self.raw))
+                self.state['_job_id'] = (self.raw.get('PrintInfo') or {}).get('TaskId')
+                self._track_job()
+                self.observed_at = time.time()
         video = extract_video_url(msg)
         if video:
             self.video_url = video
 
     def normalize(self, raw):
         return normalize_status(raw)
+
+    def refresh_for_command(self):
+        previous = self.observed_at or 0
+        self.request(CMD_STATUS)
+        if not wait_until(lambda: (self.observed_at or 0) > previous, 3):
+            raise ValueError('No fresh Elegoo observation. Review the current printer state.')
+
+    def perform_command(self, action):
+        cmd = {'pause': 129, 'resume': 131, 'cancel': 130}[action]
+        request_id = uuid.uuid4().hex
+        waiter = {'cmd': cmd, 'event': threading.Event(), 'ack': None}
+        with self.ack_lock:
+            self.command_waiters[request_id] = waiter
+        try:
+            self.request(cmd, request_id=request_id)
+            if not waiter['event'].wait(3):
+                raise TimeoutError('No correlated Elegoo acknowledgment')
+            if waiter['ack'] != 0:
+                raise CommandRejected('Elegoo rejected the action (code %s)' % waiter['ack'])
+        finally:
+            with self.ack_lock:
+                self.command_waiters.pop(request_id, None)
 
     def fetch_gcode(self, name):
         path = self.snapshot().get('_path') or name

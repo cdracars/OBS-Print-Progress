@@ -13,7 +13,7 @@ import json
 import urllib.error
 import urllib.request
 
-from .base import Adapter
+from .base import Adapter, CommandRejected
 
 USER = 'maker'
 POLL_SECONDS = 2
@@ -107,6 +107,41 @@ class PrusaLinkAdapter(Adapter):
             if sjob.get('id') != self.job_id:
                 self.job_id = sjob.get('id')
                 self.job = self.get_json('/api/v1/job') if self.job_id is not None else None
-            self.update(**normalize_status(status, self.job))
+            self.update(**dict(normalize_status(status, self.job), _job_id=self.job_id))
             if self.stop_event.wait(POLL_SECONDS):
                 return
+
+    def refresh_for_command(self):
+        status = self.get_json('/api/v1/status') or {}
+        current = (status.get('job') or {}).get('id')
+        self.job_id = current
+        self.job = self.get_json('/api/v1/job') if current is not None else None
+        self.update(**dict(normalize_status(status, self.job), _job_id=current))
+
+    def perform_command(self, action):
+        return self._send_command(action, self.job_id)
+
+    def perform_checked_command(self, action, expected_token):
+        with self.lock:
+            self._track_job()
+            if self._job_token != expected_token:
+                raise CommandRejected('PrusaLink job changed before dispatch')
+            job_id = self.state.get('_job_id')
+        # Pin the URL to this job even if the background poll observes a new one.
+        return self._send_command(action, job_id)
+
+    def _send_command(self, action, job_id):
+        if not isinstance(job_id, int):
+            raise CommandRejected('PrusaLink has no current printer job ID')
+        path = '/api/v1/job/%d' % job_id
+        method = 'DELETE' if action == 'cancel' else 'PUT'
+        if action != 'cancel':
+            path += '/' + {'pause': 'pause', 'resume': 'resume'}[action]
+        request = urllib.request.Request(self.base + path, method=method, headers={'X-Api-Key': self.password})
+        try:
+            with self.opener.open(request, timeout=5) as response:
+                if response.status != 204:
+                    raise CommandRejected('Unexpected PrusaLink command response')
+        except urllib.error.HTTPError as err:
+            err.close()
+            raise CommandRejected('PrusaLink rejected the action (HTTP %d)' % err.code)

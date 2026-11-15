@@ -19,3 +19,9 @@ theme-custom.css
 __pycache__/
 *.pyc
 .printers-*.json
+dashboard.sqlite3*
+.preview/
+
+# Local simulation and test work directories
+printdesk-demo-*/
+dashboard-links.local.js
